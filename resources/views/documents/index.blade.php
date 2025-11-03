@@ -100,6 +100,10 @@
                 $.get('{{ route('documents.data') }}', params, function (json) {
                     $('.doc_count').text(json.recordsTotal || 0);
                     callback(json);
+                    jQuery('#data-table_processing').hide();
+                }).fail(function(xhr){
+                    jQuery('#data-table_processing').hide();
+                    alert('Failed to load documents ('+xhr.status+'): '+xhr.statusText);
                 });
             },
             order: (checkDeletePermission) ? [[1,'asc']] : [[0,'asc']],

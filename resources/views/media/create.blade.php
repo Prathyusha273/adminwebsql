@@ -87,11 +87,8 @@ function slugify(text) {
         .replace(/-+$/, '');
 }
 
-var database = firebase.firestore();
-var storageRef = firebase.storage().ref('images');
-var photo = "";
+var photoFile = null;
 var imageName = "";
-var imagePath = "";
 var isUploading = false;
 
 $(document).ready(function() {
@@ -111,12 +108,8 @@ $(document).ready(function() {
     // Handle image file selection
     $('#media_image').change(function (evt) {
         var f = evt.target.files[0];
-        if (!f) {
-            photo = "";
-            $('.media_image_preview').html('');
-            return;
-        }
-        
+        if (!f) { photoFile = null; $('.media_image_preview').html(''); return; }
+
         // Validate file type
         if (!f.type.startsWith('image/')) {
             $('.error_top').show().html('<p>Please select a valid image file.</p>');
@@ -124,7 +117,7 @@ $(document).ready(function() {
             $(this).val('');
             return;
         }
-        
+
         // Validate file size (max 5MB)
         if (f.size > 5 * 1024 * 1024) {
             $('.error_top').show().html('<p>Image size should not exceed 5MB.</p>');
@@ -132,11 +125,11 @@ $(document).ready(function() {
             $(this).val('');
             return;
         }
-        
+
+        photoFile = f;
         var reader = new FileReader();
         reader.onload = function (e) {
-            photo = e.target.result;
-            $('.media_image_preview').html('<img class="rounded" style="width:70px; height:70px; object-fit: cover;" src="' + photo + '" alt="image preview">');
+            $('.media_image_preview').html('<img class="rounded" style="width:70px; height:70px; object-fit: cover;" src="' + e.target.result + '" alt="image preview">');
         };
         reader.readAsDataURL(f);
     });
@@ -144,76 +137,41 @@ $(document).ready(function() {
     // Save media
     $('.save-media-btn').click(async function () {
         if (isUploading) return;
-        
+
         var name = $('#media_name').val().trim();
         var slug = $('#media_slug').val();
-        
+
         // Validation
         if (!name) {
             $('.error_top').show().html('<p>Please enter a media name.</p>');
             window.scrollTo(0, 0);
             return;
         }
-        
-        if (!photo) {
+
+        if (!photoFile) {
             $('.error_top').show().html('<p>Please select an image.</p>');
             window.scrollTo(0, 0);
             return;
         }
-        
+
         if (!imageName) {
             $('.error_top').show().html('<p>Please enter a valid name to generate slug.</p>');
             window.scrollTo(0, 0);
             return;
         }
-        
+
         $('.error_top').hide();
         isUploading = true;
         $('.save-media-btn').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Saving...');
-        
-        try {
-            // Upload image to Firebase Storage
-            var uploadTask = storageRef.child(imageName).putString(
-                photo.replace(/^data:image\/[a-z]+;base64,/, ''), 
-                'base64', 
-                {contentType: 'image/jpeg'}
-            );
-            
-            var snapshot = await uploadTask;
-            imagePath = await snapshot.ref.getDownloadURL();
-            $('#media_image_path').val(imagePath);
-            
-            // Save to Firestore
-            var docRef = database.collection('media').doc();
-            await docRef.set({
-                id: docRef.id,
-                name: name,
-                slug: slug,
-                image_name: imageName,
-                image_path: imagePath,
-                created_at: new Date(),
-                updated_at: new Date()
-            });
-            
-            // Log activity
-            await logActivity('media', 'created', 'Created new media: ' + name);
-            
-            // Success message
-            $('.error_top').removeClass('alert-danger').addClass('alert-success').show().html('<p>Media created successfully!</p>');
-            
-            // Redirect after short delay
-            setTimeout(function() {
-                window.location.href = '{{ route('media.index') }}';
-            }, 1500);
-            
-        } catch (error) {
-            console.error('Error creating media:', error);
-            $('.error_top').show().html('<p>Error creating media: ' + error.message + '</p>');
-            window.scrollTo(0, 0);
-        } finally {
-            isUploading = false;
-            $('.save-media-btn').prop('disabled', false).html('<i class="fa fa-save"></i> Save');
-        }
+
+        var fd = new FormData();
+        fd.append('name', name);
+        fd.append('slug', slug);
+        fd.append('image', photoFile);
+        $.ajax({ url: '{{ route('media.store') }}', method: 'POST', data: fd, processData: false, contentType: false, headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' } })
+            .done(function(){ window.location.href = '{{ route('media.index') }}'; })
+            .fail(function(xhr){ $('.error_top').show().html('<p>Failed ('+xhr.status+'): '+xhr.responseText+'</p>'); window.scrollTo(0,0); })
+            .always(function(){ isUploading = false; $('.save-media-btn').prop('disabled', false).html('<i class="fa fa-save"></i> Save'); });
     });
 });
 </script>

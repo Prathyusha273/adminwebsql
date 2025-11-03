@@ -15,7 +15,7 @@
         </div>
     </div>
     <div class="container-fluid">
-       <div class="admin-top-section"> 
+       <div class="admin-top-section">
         <div class="row">
             <div class="col-12">
                 <div class="d-flex top-title-section pb-4 justify-content-between">
@@ -30,7 +30,7 @@
                     </div>
                 </div>
             </div>
-        </div> 
+        </div>
        </div>
        <div class="table-list">
        <div class="row">
@@ -42,10 +42,10 @@
                     <p class="mb-0 text-dark-2">{{trans('lang.cms_table_text')}}</p>
                    </div>
                    <div class="card-header-right d-flex align-items-center">
-                    <div class="card-header-btn mr-3"> 
+                   <div class="card-header-btn mr-3">
                         <a class="btn-primary btn rounded-full" href="{!! route('cms.create') !!}"><i class="mdi mdi-plus mr-2"></i>{{trans('lang.cms_create')}}</a>
                      </div>
-                   </div>                
+                   </div>
                  </div>
                  <div class="card-body">
                          <div class="table-responsive m-t-10">
@@ -75,9 +75,6 @@
 @endsection
 @section('scripts')
 <script type="text/javascript">
-    var database = firebase.firestore();
-    var ref = database.collection('cms_pages').orderBy('name');
-    var placeholderImage = '';
     var user_permissions = '<?php echo @session("user_permissions")?>';
     user_permissions = Object.values(JSON.parse(user_permissions));
     var checkDeletePermission = false;
@@ -91,90 +88,18 @@
             processing: false, // Show processing indicator
             serverSide: true, // Enable server-side processing
             responsive: true,
-            ajax: function (data, callback, settings) {
-                const start = data.start;
-                const length = data.length;
-                const searchValue = data.search.value.toLowerCase();
-                const orderColumnIndex = data.order[0].column;
-                const orderDirection = data.order[0].dir;
-                const orderableColumns =(checkDeletePermission) ? ['','name', 'slug', '',''] : ['name', 'slug', '','']; // Ensure this matches the actual column names
-                const orderByField = orderableColumns[orderColumnIndex]; // Adjust the index to match your table
-                if (searchValue.length >= 3 || searchValue.length === 0) {
-                    $('#data-table_processing').show();
-                }
-                ref.get().then(async function (querySnapshot) {
-                    if (querySnapshot.empty) {
-                        $('.total_count').text(0); 
-                        console.error("No data found in Firestore.");
-                        $('#data-table_processing').hide(); // Hide loader
-                        callback({
-                            draw: data.draw,
-                            recordsTotal: 0,
-                            recordsFiltered: 0,
-                            data: [] // No data
-                        });
-                        return;
-                    }
-                    let records = [];
-                    let filteredRecords = [];
-                    await Promise.all(querySnapshot.docs.map(async (doc) => {
-                        let childData = doc.data();
-                        childData.id = doc.id; // Ensure the document ID is included in the data
-                        if (searchValue) {
-                            if (
-                                (childData.name && childData.name.toString().toLowerCase().includes(searchValue)) ||
-                                (childData.slug && childData.slug.toString().includes(searchValue))
-                            ) {
-                                filteredRecords.push(childData);
-                            }
-                        } else {
-                            filteredRecords.push(childData);
-                        }
-                    }));
-                    filteredRecords.sort((a, b) => {
-                        let aValue = a[orderByField] ? a[orderByField].toString().toLowerCase() : '';
-                        let bValue = b[orderByField] ? b[orderByField].toString().toLowerCase() : '';
-                        if (orderDirection === 'asc') {
-                            return (aValue > bValue) ? 1 : -1;
-                        } else {
-                            return (aValue < bValue) ? 1 : -1;
-                        }
-                    });
-                    const totalRecords = filteredRecords.length;
-                    $('.total_count').text(totalRecords); 
-                    const paginatedRecords = filteredRecords.slice(start, start + length);
-                    paginatedRecords.forEach(function (childData) {
-                        var route1 = '{{route("cms.edit",":id")}}';
-                        route1 = route1.replace(':id', childData.id);
-                        records.push([
-                            checkDeletePermission ? '<td class="delete-all"><input type="checkbox" id="is_open_' + childData.id + '" class="is_open" dataId="' + childData.id + '"><label class="col-3 control-label"\n' + 'for="is_open_' + childData.id + '" ></label></td>' : '',
-                            '<a href="' + route1 + '">' + childData.name + '</a>',
-                            childData.slug,
-                            childData.hasOwnProperty('publish') && childData.publish ? '<label class="switch"><input type="checkbox" checked id="' + childData.id + '" name="isSwitch"><span class="slider round"></span></label>' : '<label class="switch"><input type="checkbox" id="' + childData.id + '" name="isSwitch"><span class="slider round"></span></label>',
-                            '<span class="action-btn"><a href="' + route1 + '"><i class="mdi mdi-lead-pencil" title="Edit"></i></a><?php if (in_array('cms.delete', json_decode(@session('user_permissions'), true))) { ?> <a id="' + childData.id + '" name="category-delete" class="delete-btn" href="javascript:void(0)"><i class="mdi mdi-delete"></i></a></span><?php } ?>'
-                        ]);
-                    });
-                    $('#data-table_processing').hide(); // Hide loader
-                    callback({
-                        draw: data.draw,
-                        recordsTotal: totalRecords, // Total number of records in Firestore
-                        recordsFiltered: totalRecords, // Number of records after filtering (if any)
-                        data: records // The actual data to display in the table
-                    });
-                }).catch(function (error) {
-                    console.error("Error fetching data from Firestore:", error);
-                    $('#data-table_processing').hide(); // Hide loader
-                    callback({
-                        draw: data.draw,
-                        recordsTotal: 0,
-                        recordsFiltered: 0,
-                        data: [] // No data due to error
-                    });
-                });
+            ajax: function (data, callback) {
+                const params = { start: data.start, length: data.length, draw: data.draw, search: data.search.value };
+                $.get('{{ route('cms.data') }}', params, function (json) {
+                    $('.total_count').text(json.recordsTotal || 0);
+                    callback(json);
+                }).fail(function(xhr){
+                    alert('Failed to load CMS ('+xhr.status+'): '+xhr.statusText);
+                }).always(function(){ jQuery('#data-table_processing').hide(); });
             },
             order: (checkDeletePermission) ? [1, 'asc'] : [0, 'asc'],
             columnDefs: [
-                { targets: (checkDeletePermission) ? [0, 3, 4] : [2, 3], orderable: false }
+                { targets: (checkDeletePermission) ? [0, 2, 3] : [2, 3], orderable: false }
             ],
             language: {
                 zeroRecords: "{{trans("lang.no_record_found")}}",
@@ -202,79 +127,32 @@
             }
         }, 300));
     });
-    $("#is_active").click(function () {
-        $("#example24 .is_open").prop('checked', $(this).prop('checked'));
+    // Select all / bulk delete
+    $(document).on('click', '#is_active', function(){ $("#cmsTable .is_open").prop('checked', $(this).prop('checked')); });
+    $(document).on('click', '#deleteAll', function(){
+        var ids = []; $('#cmsTable .is_open:checked').each(function(){ ids.push($(this).attr('dataId')); });
+        if(ids.length===0){ alert("{{trans('lang.select_delete_alert')}}"); return; }
+        if(!confirm("{{trans('lang.selected_delete_alert')}}")) return;
+        $.post({ url: '{{ route('cms.bulkDelete') }}', headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' }, data: { ids: ids } })
+            .done(function(){ $('#cmsTable').DataTable().ajax.reload(null,false); })
+            .fail(function(xhr){ alert('Failed to delete ('+xhr.status+'): '+xhr.statusText); });
     });
-    $("#deleteAll").click(function () {
-        if ($('#example24 .is_open:checked').length) {
-            if (confirm("{{trans('lang.selected_delete_alert')}}")) {
-                jQuery("#data-table_processing").show();
-                var selectedNames = [];
-                var deletePromises = [];
-                
-                $('#example24 .is_open:checked').each(function () {
-                    var dataId = $(this).attr('dataId');
-                    // Get the page name before deleting
-                    var deletePromise = database.collection('cms_pages').doc(dataId).get().then(function(doc) {
-                        if (doc.exists) {
-                            selectedNames.push(doc.data().name);
-                        }
-                        return database.collection('cms_pages').doc(dataId).delete();
-                    });
-                    deletePromises.push(deletePromise);
-                });
-                
-                Promise.all(deletePromises).then(async function() {
-                    // Log bulk delete activity
-                    await logActivity('cms_pages', 'deleted', 'Bulk deleted CMS pages: ' + selectedNames.join(', '));
-                    window.location.reload();
-                });
-            }
-        } else {
-            alert("{{trans('lang.select_delete_alert')}}");
-        }
+    // Toggle publish
+    $('#cmsTable').on('change', '.toggle-publish', function(){
+        var id = $(this).data('id');
+        var publish = $(this).is(':checked');
+        var $cb = $(this); $cb.prop('disabled', true);
+        $.post({ url: '{{ url('cms') }}' + '/' + id + '/toggle', headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' }, data: { publish: publish } })
+            .fail(function(xhr){ $cb.prop('checked', !publish); alert('Failed to update ('+xhr.status+'): '+xhr.statusText); })
+            .always(function(){ $cb.prop('disabled', false); });
     });
-    $(document).on("click", "input[name='isSwitch']", function (e) {
-        var ischeck = $(this).is(':checked');
-        var id = this.id;
-        var pageName = '';
-        
-        // Get the page name before updating
-        database.collection('cms_pages').doc(id).get().then(function(doc) {
-            if (doc.exists) {
-                pageName = doc.data().name;
-            }
-            
-            if (ischeck) {
-                database.collection('cms_pages').doc(id).update({'publish': true}).then(async function (result) {
-                    // Log publish activity
-                    await logActivity('cms_pages', 'published', 'Published CMS page: ' + pageName);
-                });
-            } else {
-                database.collection('cms_pages').doc(id).update({'publish': false}).then(async function (result) {
-                    // Log unpublish activity
-                    await logActivity('cms_pages', 'unpublished', 'Unpublished CMS page: ' + pageName);
-                });
-            }
-        });
-    });
-    $(document).on("click", "a[name='category-delete']", function (e) {
-        var id = this.id;
-        var pageName = '';
-        
-        // Get the page name before deleting
-        database.collection('cms_pages').doc(id).get().then(function(doc) {
-            if (doc.exists) {
-                pageName = doc.data().name;
-            }
-            
-            jQuery("#data-table_processing").show();
-            database.collection('cms_pages').doc(id).delete().then(async function (result) {
-                // Log single delete activity
-                await logActivity('cms_pages', 'deleted', 'Deleted CMS page: ' + pageName);
-                window.location.reload();
-            });
-        });
+    // Single delete
+    $('#cmsTable').on('click', '.delete-cms', function(){
+        var id = $(this).data('id');
+        if(!confirm("{{trans('lang.selected_delete_alert')}}")) return;
+        $.post({ url: '{{ url('cms') }}' + '/' + id + '/delete', headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' } })
+            .done(function(){ $('#cmsTable').DataTable().ajax.reload(null,false); })
+            .fail(function(xhr){ alert('Failed to delete ('+xhr.status+'): '+xhr.statusText); });
     });
 </script>
 @endsection

@@ -100,7 +100,9 @@
         </div>
     </div>
     <div class="form-group col-12 text-center">
-        <?php if (in_array('banners.create', json_decode(@session('user_permissions'), true))) { ?>
+        <?php
+            $__perms = json_decode(@session('user_permissions'), true) ?: [];
+            if (in_array('banners.create', $__perms) || in_array('setting.banners.create', $__perms)) { ?>
         <button type="button" class="btn btn-primary  save-setting-btn"><i class="fa fa-save"></i> {{trans('lang.save')}}</button>
         <?php } ?>
         <a href="{!! route('setting.banners') !!}" class="btn btn-default"><i class="fa fa-undo"></i>{{trans('lang.cancel')}}</a>
@@ -109,228 +111,55 @@
 @endsection
 @section('scripts')
 <script>
-    var database = firebase.firestore();
-    var photo = "";
-    var fileName = '';
-    var storageRef = firebase.storage().ref('images');
-    
-    // Load zones on page load
-    $(document).ready(function() {
-        loadZones();
-    });
-    
-    function loadZones() {
-        $('#zoneId').html('<option value="">Select Zone</option>');
-        database.collection('zone').where('publish', '==', true).orderBy('name', 'asc').get().then(function(snapshots) {
-            snapshots.docs.forEach(function(doc) {
-                var data = doc.data();
-                $('#zoneId').append($("<option></option>")
-                    .attr("value", doc.id)
-                    .text(data.name));
-            });
-        }).catch(function(error) {
-            console.error('Error loading zones:', error);
-        });
-    }
-    $("input[name='redirect_type']:radio").change(function() {
-        var redirect_type = $(this).val();
+    function toggleRedirectUI(){
+        var redirect_type = $(".redirect_type:checked").val();
         if (redirect_type == "store") {
-            getTypeWiseDetails('store');
-            $('#vendor_div').show();
-            $('#product_div').hide();
-            $('#external_link_div').hide();
+            $('#vendor_div').show(); $('#product_div').hide(); $('#external_link_div').hide();
         } else if (redirect_type == "product") {
-            getTypeWiseDetails('product');
-            $('#vendor_div').hide();
-            $('#product_div').show();
-            $('#external_link_div').hide();
-        } else if (redirect_type == "external_link") {
-            $('#vendor_div').hide();
-            $('#product_div').hide();
-            $('#external_link_div').show();
-        }
-    });
-    function handleFileSelect(evt) {
-        var f = evt.target.files[0];
-        var reader = new FileReader();
-        reader.onload = (function(theFile) {
-            return function(e) {
-                var filePayload = e.target.result;
-                var val = f.name;
-                var ext = val.split('.')[1];
-                var docName = val.split('fakepath')[1];
-                var filename = (f.name).replace(/C:\\fakepath\\/i, '')
-                photo = filePayload;
-				fileName = filename;
-                $(".user_image").empty();
-                $(".user_image").append('<img class="rounded" style="width:50px" src="' + photo + '" alt="image">');
-                $("#banner_img").val('');
-            };
-        })(f);
-        reader.readAsDataURL(f);
-    }
-    async function storeImageData() {
-        var newPhoto = '';
-        try {
-            photo = photo.replace(/^data:image\/[a-z]+;base64,/, "")
-            var uploadTask = await storageRef.child(fileName).putString(photo, 'base64', {
-                contentType: 'image/jpg'
-            });
-            var downloadURL = await uploadTask.ref.getDownloadURL();
-            newPhoto = downloadURL;
-            photo = downloadURL;
-        } catch (error) {
-            console.log("ERR ===", error);
-        }
-        return newPhoto;
-    }
-    $(".save-setting-btn").click(function() {
-    var title = $(".title").val();
-    var position = $("#position").val();
-    var set_order = parseInt($('.set_order').val());
-    var banner_img = $("#banner_img").val();
-    var is_publish = false;
-    var redirect_type = "";
-    var zoneId = $("#zoneId").val();
-    var zoneTitle = $("#zoneId option:selected").text();
-    if ($(".redirect_type").is(":visible")) {
-        redirect_type = $(".redirect_type:checked").val() || "";
-    }
-    var redirect_id = "";
-    var checkFlag = true;
-    var checkFlagRedirection = true;
-    if (redirect_type == "store") {
-        redirect_id = $('#storeId').val();
-        if (redirect_id == "") {
-            checkFlag = false;
-            checkFlagRedirection = "store";
-        }
-    } else if (redirect_type == "product") {
-        redirect_id = $('#productId').val();
-        if (redirect_id == "") {
-            checkFlag = false;
-            checkFlagRedirection = "product";
-        }
-    } else if (redirect_type == "external_link") {
-        redirect_id = $('#external_link').val();
-        if (redirect_id == "") {
-            checkFlag = false;
-            checkFlagRedirection = "external_link";
-        }
-    }
-    if ($("#is_publish").is(':checked')) {
-        is_publish = true;
-    }
-        var storeId = $("#storeId").val();
-        var productId = $('#productId').val();
-        var ext = $("#external_link").val();
-        var store_rd = $("#store").is(':checked');
-        var product_rd = $("#product").is(':checked');
-        var ext_rd = $("#external").is(':checked');
-    if (title == '') {
-        $(".error_top").show();
-        $(".error_top").html("");
-        $(".error_top").append("<p>{{trans('lang.title_error')}}</p>");
-        window.scrollTo(0, 0);
-    } else if (isNaN(set_order)) {
-        $(".error_top").show();
-        $(".error_top").html("");
-        $(".error_top").append("<p>{{trans('lang.set_order_error')}}</p>");
-        window.scrollTo(0, 0);
-    } else if (zoneId == '') {
-        $(".error_top").show();
-        $(".error_top").html("");
-        $(".error_top").append("<p>Please select a zone.</p>");
-        window.scrollTo(0, 0);
-    }
-    else if(storeId == '' && store_rd == true) {
-        $(".error_top").show();
-        $(".error_top").html("");
-        $(".error_top").append("<p>{{trans('lang.set_store_error')}}</p>");
-        window.scrollTo(0, 0);
-    } else if(productId == '' && product_rd == true) {
-        $(".error_top").show();
-        $(".error_top").html("");
-        $(".error_top").append("<p>{{trans('lang.set_product_error')}}</p>");
-        window.scrollTo(0, 0);
-    } else if(ext == '' && ext_rd == true) {
-        $(".error_top").show();
-        $(".error_top").html("");
-        $(".error_top").append("<p>{{trans('lang.set_external_error')}}</p>");
-        window.scrollTo(0, 0);
-    }
-    else if(photo == ''){
-        $(".error_top").show();
-        $(".error_top").html("");
-        $(".error_top").append("<p>{{trans('lang.please_choose_banner')}}</p>");
-        window.scrollTo(0, 0);
-    }
-     else if (redirect_type == '') {
-        $(".error_top").show();
-        $(".error_top").html("");
-        if (checkFlagRedirection == "external_link") {
-            $(".error_top").append("<p>{{trans('lang.external_redirection')}}</p>");
+            $('#vendor_div').hide(); $('#product_div').show(); $('#external_link_div').hide();
         } else {
-            $(".error_top").append("<p>{{trans('lang.redirect_type')}}</p>");
+            $('#vendor_div').hide(); $('#product_div').hide(); $('#external_link_div').show();
         }
-        window.scrollTo(0, 0);
-    } else {
-        var id = "<?php echo uniqid(); ?>";
-        storeImageData().then(IMG => {
-            database.collection('menu_items').doc(id).set({
-                'title': title,
-                'photo': IMG,
-                'id': id,
-                'set_order': set_order,
-                'is_publish': is_publish,
-                'position': position,
-                'redirect_type': redirect_type,
-                'redirect_id': redirect_id,
-                'zoneId': zoneId,
-                'zoneTitle': zoneTitle
-            }).then(async function(result) {
-                // Log activity for banner item creation
-                await logActivity('banner_items', 'created', 'Created new banner item: ' + title + ' (Zone: ' + zoneTitle + ')');
-                window.location.href = '{{ route("setting.banners")}}';
-            }).catch(function(error) {
-                $(".error_top").show();
-                $(".error_top").html("");
-                $(".error_top").append("<p>" + error + "</p>");
-            });
-        }).catch(function(error) {
-            jQuery("#data-table_processing").hide();
-            $(".error_top").show();
-            $(".error_top").html("");
-            $(".error_top").append("<p>" + error + "</p>");
+    }
+    $(document).on('change', "input[name='redirect_type']:radio", toggleRedirectUI);
+    $(document).ready(function(){
+        toggleRedirectUI();
+        // Load zones from SQL API
+        $('#zoneId').html('<option value="">Select Zone</option>');
+        $.get('{{ url('/zone/data') }}', function(resp){
+            if(resp && resp.data){
+                resp.data.forEach(function(z){
+                    $('#zoneId').append($('<option></option>').attr('value', z.id).text(z.name));
+                });
+            }
+        }).fail(function(xhr){
+            console.error('Failed to load zones', xhr.status, xhr.statusText);
         });
-    }
-});
-    function getTypeWiseDetails(redirect_type, sectionId) {
-        if (redirect_type == "store") {
-            $('#storeId').html("");
-            $('#storeId').append($("<option value=''>Select Restaurant</option>"));
-            var ref_vendors = database.collection('vendors');
-            ref_vendors.get().then(async function(snapshots) {
-                snapshots.docs.forEach((listval) => {
-                    var data = listval.data();
-                    $('#storeId').append($("<option></option>")
-                        .attr("value", data.id)
-                        .text(data.title));
-                })
-            })
-        } else if (redirect_type == "product") {
-            $('#productId').html("");
-            $('#productId').append($("<option value=''>Select Food</option>"));
-            var ref_vendor_products = database.collection('vendor_products');
-            ref_vendor_products.get().then(async function(snapshots) {
-                snapshots.docs.forEach((listval) => {
-                    var data = listval.data();
-                    $('#productId').append($("<option></option>")
-                        .attr("value", data.id)
-                        .text(data.name));
-                })
-            })
-        }
-    }
+    });
+
+    $(".save-setting-btn").click(function() {
+        $(".error_top").hide().html('');
+        var title = $(".title").val();
+        if(!title){ $(".error_top").show().html('<p>{{trans('lang.title_error')}}'); window.scrollTo(0,0); return; }
+
+        var fd = new FormData();
+        fd.append('title', title);
+        fd.append('set_order', $('.set_order').val() || 0);
+        fd.append('is_publish', $('#is_publish').is(':checked') ? 1 : 0);
+        fd.append('position', $('#position').val() || 'top');
+        fd.append('zoneId', $('#zoneId').val() || '');
+        fd.append('zoneTitle', $('#zoneId option:selected').text() || '');
+        fd.append('redirect_type', $(".redirect_type:checked").val() || 'external_link');
+        var redirect_id = '';
+        if($("#store").is(':checked')) redirect_id = $('#storeId').val()||'';
+        else if($("#product").is(':checked')) redirect_id = $('#productId').val()||'';
+        else if($("#external").is(':checked')) redirect_id = $('#external_link').val()||'';
+        fd.append('redirect_id', redirect_id);
+        var fileInput = $("input[type='file']")[0];
+        if (fileInput && fileInput.files && fileInput.files[0]) { fd.append('photo', fileInput.files[0]); }
+        $.ajax({ url: '{{ route('menu-items.store') }}', method: 'POST', data: fd, processData: false, contentType: false, headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' } })
+            .done(function(){ window.location.href = '{{ route('setting.banners') }}'; })
+            .fail(function(xhr){ $(".error_top").show().html('<p>Failed ('+xhr.status+'): '+xhr.responseText+'</p>'); window.scrollTo(0,0); });
+    });
 </script>
 @endsection

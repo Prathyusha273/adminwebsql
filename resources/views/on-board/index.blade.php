@@ -15,7 +15,7 @@
         </div>
     </div>
     <div class="container-fluid">
-       <div class="admin-top-section"> 
+       <div class="admin-top-section">
         <div class="row">
             <div class="col-12">
                 <div class="d-flex top-title-section pb-4 justify-content-between">
@@ -26,13 +26,13 @@
                     </div>
                     <div class="d-flex top-title-right align-self-center">
                         <div class="select-box pl-3">
-                          
+
                         </div>
                     </div>
                 </div>
             </div>
-        </div> 
-      
+        </div>
+
        </div>
        <div class="table-list">
        <div class="row">
@@ -44,14 +44,14 @@
                     <p class="mb-0 text-dark-2">{{trans('lang.on_board_table_text')}}</p>
                    </div>
                    <div class="card-header-right d-flex align-items-center">
-                    <div class="card-header-btn mr-3"> 
+                    <div class="card-header-btn mr-3">
                         <!-- <a class="btn-primary btn rounded-full" href="{!! route('users.create') !!}"><i class="mdi mdi-plus mr-2"></i>{{trans('lang.user_create')}}</a> -->
                      </div>
-                   </div>                
+                   </div>
                  </div>
                  <div class="card-body">
                          <div class="table-responsive m-t-10">
-                            <table id="userTable" class="display  table table-hover table-striped table-bordered table table-striped" cellspacing="0" width="100%">
+                            <table id="onboardTable" class="display  table table-hover table-striped table-bordered table table-striped" cellspacing="0" width="100%">
                                 <thead>
                                     <tr>
                                         <th>{{trans('lang.title')}}</th>
@@ -74,81 +74,34 @@
 @endsection
 @section('scripts')
     <script type="text/javascript">
-        var database = firebase.firestore();
-        var offest = 1;
-        var pagesize = 10;
-        var end = null;
-        var endarray = [];
-        var start = null;
-        var user_number = [];
-        var ref = database.collection('on_boarding');
-        var append_list = '';
-        $(document).ready(function () {
+        $(document).ready(function(){
             jQuery("#data-table_processing").show();
-            $(document.body).on('click', '.redirecttopage', function () {
-                var url = $(this).attr('data-url');
-                window.location.href = url;
+            const table = $('#onboardTable').DataTable({
+                pageLength: 10,
+                processing: true,
+                serverSide: true,
+                responsive: true,
+                ajax: function (data, callback) {
+                    const params = { start: data.start, length: data.length, draw: data.draw, search: data.search.value };
+                    $.get('{{ route('on-board.data') }}', params, function (json) {
+                        $('.total_count').text(json.recordsTotal || 0);
+                        callback(json);
+                    }).fail(function(xhr){ alert('Failed to load ('+xhr.status+'): '+xhr.statusText); })
+                      .always(function(){ jQuery('#data-table_processing').hide(); });
+                },
+                order: [[0,'asc']],
+                columnDefs: [ { orderable: false, targets: [3] } ],
+                language: { zeroRecords: "{{trans('lang.no_record_found')}}", emptyTable: "{{trans('lang.no_record_found')}}" }
             });
-            var inx = parseInt(offest) * parseInt(pagesize);
-            append_list = document.getElementById('append_list1');
-            append_list.innerHTML = '';
-            ref.get().then(async function (snapshots) {
-                html = '';
-                $('.total_count').text(snapshots.docs.length); 
-                if (snapshots.docs.length > 0) {
-                    html = await buildHTML(snapshots);
-                }
-                jQuery("#data-table_processing").hide();
-                if (html != '') {
-                    append_list.innerHTML = html;
-                    start = snapshots.docs[snapshots.docs.length - 1];
-                    endarray.push(snapshots.docs[0]);
-                    if (snapshots.docs.length < pagesize) {
-                        jQuery("#data-table_paginate").hide();
-                    }
-                }
-                $('#userTable').DataTable({
-                    order: [[1, 'asc']],
-                    columnDefs: [
-                        {orderable: false, targets: [3]},
-                    ],
-                    "language": {
-                        "zeroRecords": "{{trans('lang.no_record_found')}}",
-                        "emptyTable": "{{trans('lang.no_record_found')}}"
-                    },
-                    "bPaginate": false
-                });
+
+            // Delete single record
+            $('#onboardTable').on('click', '.delete-onboard', function(){
+                var id = $(this).data('id');
+                if(!confirm("{{trans('lang.selected_delete_alert')}}")) return;
+                $.post({ url: '{{ url('on-board') }}' + '/' + id + '/delete', headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' } })
+                    .done(function(){ $('#onboardTable').DataTable().ajax.reload(null,false); })
+                    .fail(function(xhr){ alert('Failed to delete ('+xhr.status+'): '+xhr.statusText); });
             });
         });
-        async function buildHTML(snapshots) {
-            await Promise.all(snapshots.docs.map(async (listval) => {
-                var val = listval.data();
-                var getData = await getListData(val);
-                html += getData;
-            }));
-            return html;
-        }
-        function getListData(val) {
-            var html = '';
-            html = html + '<tr>';
-            newdate = '';
-            var id = val.id;
-            var route1 = '{{route("on-board.save",":id")}}';
-            route1 = route1.replace(':id', id);
-            html = html + '<td><a href="' + route1 + '">' + val.title + '</a></td>';
-            html = html + '<td>' + val.description + '</td>';
-            var type = '';
-            if (val.type == "customerApp") {
-                type = "Customer";
-            } else if (val.type == "driverApp") {
-                type = "Driver";
-            } else if (val.type == "restaurantApp") {
-                type = "Restaurant";
-            }
-            html = html + '<td>' + type + '</td>';
-            html = html + '<td class="action-btn"><a href="' + route1 + '"><i class="mdi mdi-lead-pencil" title="Edit"></i></a></td>';
-            html = html + '</tr>';
-            return html;
-        }
     </script>
 @endsection

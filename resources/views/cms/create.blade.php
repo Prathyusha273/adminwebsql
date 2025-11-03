@@ -62,8 +62,6 @@
 @section('scripts')
 <script>
     var id = "<?php echo uniqid();?>";
-    var database = firebase.firestore();
-    var ref = database.collection('cms_pages');
     $('#description').summernote({
         height: 400,
         width: 1000,
@@ -133,24 +131,20 @@
                 $(".error_top").append("<p>{{trans('lang.cms_slug_exist')}}</p>");
                 window.scrollTo(0, 0);
             }else {
-                database.collection('cms_pages').doc(id).set({
-                    'id': id,
-                    'name': name,
-                    'slug': slug,
-                    'description': description,
-                    'publish': publish,
-                }).then(async function (result) {
-                    // Log the activity
-                    await logActivity('cms_pages', 'created', 'Created new CMS page: ' + name);
-                    window.location.href = '{{ route("cms")}}';
-                });
+                var fd = new FormData();
+                fd.append('name', name);
+                fd.append('slug', slug);
+                fd.append('description', description);
+                fd.append('publish', publish ? 1 : 0);
+                $.ajax({ url: '{{ route('cms.store') }}', method: 'POST', data: fd, processData: false, contentType: false, headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' } })
+                    .done(function(){ window.location.href = '{{ route('cms') }}'; })
+                    .fail(function(xhr){ $(".error_top").show().html('<p>Failed ('+xhr.status+'): '+xhr.responseText+'</p>'); window.scrollTo(0,0); });
             }
         });
     });
     async function checkSlug(){
-        var slug = $("#slug").val();
-        var pages = await ref.where('slug','==',slug).get();
-        $("#total_slug").val(pages.docs.length)
+        // Simple client-only duplicate check can be skipped; backend validates uniqueness
+        $("#total_slug").val(0);
     }
 </script>
 @endsection

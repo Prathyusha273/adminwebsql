@@ -109,279 +109,56 @@
 @endsection
 @section('scripts')
 <script>
-    var database = firebase.firestore();
-    var photo = "";
-    var fileName = "";
-    var bannerImageFile = "";
-    var placeholderImage = '';
-    var placeholder = database.collection('settings').doc('placeHolderImage');
-    placeholder.get().then(async function(snapshotsimage) {
-        var placeholderImageData = snapshotsimage.data();
-        placeholderImage = placeholderImageData.image;
-    })
-    var storageRef = firebase.storage().ref('images');
-    var storage = firebase.storage();
     var id = "<?php echo $id; ?>";
-    var ref = database.collection('menu_items').where("id", "==", id);
-    
-    function loadZones() {
-        $('#zoneId').html('<option value="">Select Zone</option>');
-        database.collection('zone').where('publish', '==', true).orderBy('name', 'asc').get().then(function(snapshots) {
-            snapshots.docs.forEach(function(doc) {
-                var data = doc.data();
-                $('#zoneId').append($("<option></option>")
-                    .attr("value", doc.id)
-                    .text(data.name));
-            });
-        }).catch(function(error) {
-            console.error('Error loading zones:', error);
-        });
-    }
-    $("input[name='redirect_type']:radio").change(function() {
-        var redirect_type = $(this).val();
+    function toggleRedirectUI(){
+        var redirect_type = $(".redirect_type:checked").val();
         if (redirect_type == "store") {
-            getTypeWiseDetails('store');
-            $('#vendor_div').show();
-            $('#product_div').hide();
-            $('#external_link_div').hide();
+            $('#vendor_div').show(); $('#product_div').hide(); $('#external_link_div').hide();
         } else if (redirect_type == "product") {
-            getTypeWiseDetails('product');
-            $('#vendor_div').hide();
-            $('#product_div').show();
-            $('#external_link_div').hide();
-        } else if (redirect_type == "external_link") {
-            $('#vendor_div').hide();
-            $('#product_div').hide();
-            $('#external_link_div').show();
-        }
-    });
-    $(document).ready(function() {
-        jQuery("#data-table_processing").show();
-        // Load zones first
-        loadZones();
-        
-        ref.get().then(async function(snapshots) {
-            var menuItems = snapshots.docs[0].data();
-            $(".title").val(menuItems.title);
-            $("#position").val(menuItems.position);
-            $(".set_order").val(menuItems.set_order);
-            $(".extlink").val(menuItems.redirect_id);
-            
-            // Set zone values if they exist
-            if (menuItems.zoneId) {
-                setTimeout(function() {
-                    $("#zoneId").val(menuItems.zoneId);
-                }, 500); // Wait for zones to load
-            }
-            
-            if (menuItems.is_publish) {
-                $("#is_publish").prop("checked", true);
-            }
-            if (menuItems.photo != '' && menuItems.photo != null) {
-                photo = menuItems.photo;
-                bannerImageFile = menuItems.photo;
-                $(".user_image").append('<img onerror="this.onerror=null;this.src=\'' + placeholderImage + '\'" class="rounded" style="width:50px" src="' + photo + '" alt="image">');
-            }
-            if (menuItems.hasOwnProperty('redirect_type')) {
-                var redirect_type = menuItems.redirect_type;
-                var redirect_id = menuItems.redirect_id;
-                $("input[name=redirect_type][value=" + redirect_type + "]").attr('checked', 'checked');
-                if (redirect_type == "store") {
-                    getTypeWiseDetails('store', redirect_id);
-                    $('#vendor_div').show();
-                    $('#product_div').hide();
-                    $('#external_link_div').hide();
-                } else if (redirect_type == "product") {
-                    getTypeWiseDetails('product', redirect_id);
-                    $('#vendor_div').hide();
-                    $('#product_div').show();
-                    $('#external_link_div').hide();
-                } else if (redirect_type == "external_link") {
-                    $('#vendor_div').hide();
-                    $('#product_div').hide();
-                    $('#external_link_div').show();
-                }
-            }
-            jQuery("#data-table_processing").hide();
-        });
-    });
-    function handleFileSelect(evt) {
-        var f = evt.target.files[0];
-        var reader = new FileReader();
-        reader.onload = (function(theFile) {
-            return function(e) {
-                var filePayload = e.target.result;
-				var val = f.name;
-				var ext = val.split('.')[1];
-				var docName = val.split('fakepath')[1];
-				var filename = (f.name).replace(/C:\\fakepath\\/i, '')
-				var timestamp = Number(new Date());
-				var filename = filename.split('.')[0] + "_" + timestamp + '.' + ext;
-				photo = filePayload;
-				fileName = filename;
-                $(".user_image").empty();
-                $(".user_image").append('<img class="rounded" style="width:50px" src="' + photo + '" alt="image">');
-                $("#banner_img").val('');
-            };
-        })(f);
-        reader.readAsDataURL(f);
-    }
-    async function storeImageData() {
-        var newPhoto = '';
-        try {
-            if (bannerImageFile != "" && photo != bannerImageFile) {
-                var bannerOldImageUrlRef = await storage.refFromURL(bannerImageFile);
-                imageBucket = bannerOldImageUrlRef.bucket;
-                    var envBucket = "<?php echo env('FIREBASE_STORAGE_BUCKET'); ?>";
-                    if (imageBucket == envBucket) {
-                        await bannerOldImageUrlRef.delete().then(() => {
-                            console.log("Old file deleted!")
-                        }).catch((error) => {
-                            console.log("ERR File delete ===", error);
-                        });
-                    } else {
-                        console.log('Bucket not matched');
-                    }
-            }
-            if (photo != bannerImageFile) {
-                photo = photo.replace(/^data:image\/[a-z]+;base64,/, "")
-                var uploadTask = await storageRef.child(fileName).putString(photo, 'base64', {
-                    contentType: 'image/jpg'
-                });
-                var downloadURL = await uploadTask.ref.getDownloadURL();
-                newPhoto = downloadURL;
-                photo = downloadURL;
-            } else {
-                newPhoto = photo;
-            }
-        } catch (error) {
-            console.log("ERR ===", error);
-        }
-        return newPhoto;
-    }
-    $(".edit-setting-btn").click(function() {
-        var title = $(".title").val();
-        var position = $("#position").val();
-        var set_order = parseInt($('.set_order').val());
-        var is_publish = false;
-        var redirect_type = "";
-        var zoneId = $("#zoneId").val();
-        var zoneTitle = $("#zoneId option:selected").text();
-        if ($(".redirect_type").is(":visible")) {
-            redirect_type = $(".redirect_type:checked").val();
-        }
-        var redirect_id = "";
-        var checkFlag = true;
-        var checkFlagRedirection = true;
-        if (redirect_type == "store") {
-            redirect_id = $('#storeId').val();
-            if (redirect_id == "") {
-                checkFlag = false;
-                checkFlagRedirection = "store";
-            }
-        } else if (redirect_type == "product") {
-            redirect_id = $('#productId').val();
-            if (redirect_id == "") {
-                checkFlag = false;
-                checkFlagRedirection = "product";
-            }
-        } else if (redirect_type == "external_link") {
-            redirect_id = $('#external_link').val();
-            if (redirect_id == "") {
-                checkFlag = false;
-                checkFlagRedirection = "external_link";
-            }
-        }
-        if ($("#is_publish").is(':checked')) {
-            is_publish = true;
-        }
-        if (title == '') {
-            $(".error_top").show();
-            $(".error_top").html("");
-            $(".error_top").append("<p>{{trans('lang.title_error')}}</p>");
-            window.scrollTo(0, 0);
-        } else if (isNaN(set_order)) {
-            $(".error_top").show();
-            $(".error_top").html("");
-            $(".error_top").append("<p>{{trans('lang.set_order_error')}}</p>");
-            window.scrollTo(0, 0);
-        } else if (zoneId == '') {
-            $(".error_top").show();
-            $(".error_top").html("");
-            $(".error_top").append("<p>Please select a zone.</p>");
-            window.scrollTo(0, 0);
-        } else if (checkFlag == false) {
-            $(".error_top").show();
-            $(".error_top").html("");
-            if (checkFlagRedirection == "external_link") {
-                $(".error_top").append("<p>{{trans('lang.set_external_error')}}</p>");
-            } else {
-                $(".error_top").append("Please Select " + checkFlagRedirection);
-            }
-            window.scrollTo(0, 0);
+            $('#vendor_div').hide(); $('#product_div').show(); $('#external_link_div').hide();
         } else {
-            storeImageData().then(IMG => {
-            database.collection('menu_items').doc(id).update({
-                'title': title,
-                'photo': IMG,
-                'id': id,
-                'set_order': set_order,
-                'is_publish': is_publish,
-                'position': position,
-                'redirect_type': redirect_type,
-                'redirect_id': redirect_id,
-                'zoneId': zoneId,
-                'zoneTitle': zoneTitle
-            }).then(async function(result) {
-                // Log activity for banner item update
-                await logActivity('banner_items', 'updated', 'Updated banner item: ' + title + ' (Zone: ' + zoneTitle + ')');
-                window.location.href = '{{ route("setting.banners")}}';
-            }).catch(function(error) {
-                $(".error_top").show();
-                $(".error_top").html("");
-                $(".error_top").append("<p>" + error + "</p>");
-            });
-        }).catch(err => {
-                jQuery("#data-table_processing").hide();
-                $(".error_top").show();
-                $(".error_top").html("");
-                $(".error_top").append("<p>" + err + "</p>");
-                window.scrollTo(0, 0);
-            });
-        }
-    });
-    function getTypeWiseDetails(redirect_type, redirect_id = '') {
-        if (redirect_type == "store") {
-            $('#storeId').html("");
-            $('#storeId').append($("<option value=''>Select Store</option>"));
-            var ref_vendors = database.collection('vendors');
-            ref_vendors.get().then(async function(snapshots) {
-                snapshots.docs.forEach((listval) => {
-                    var data = listval.data();
-                    $('#storeId').append($("<option></option>")
-                        .attr("value", data.id)
-                        .text(data.title));
-                })
-                if (redirect_id) {
-                    $('#storeId').val(redirect_id);
-                }
-            })
-        } else if (redirect_type == "product") {
-            $('#productId').html("");
-            $('#productId').append($("<option value=''>Select Product</option>"));
-            var ref_vendor_products = database.collection('vendor_products');
-            ref_vendor_products.get().then(async function(snapshots) {
-                snapshots.docs.forEach((listval) => {
-                    var data = listval.data();
-                    $('#productId').append($("<option></option>")
-                        .attr("value", data.id)
-                        .text(data.name));
-                })
-                if (redirect_id) {
-                    $('#productId').val(redirect_id);
-                }
-            })
+            $('#vendor_div').hide(); $('#product_div').hide(); $('#external_link_div').show();
         }
     }
+    $("input[name='redirect_type']:radio").change(toggleRedirectUI);
+
+    $(document).ready(function(){
+        // Load existing record
+        $.get('{{ route('menu-items.json', ['id'=>':id']) }}'.replace(':id', id), function(data){
+            $(".title").val(data.title || '');
+            $("#position").val(data.position || 'top');
+            $(".set_order").val(data.set_order || 0);
+            $(".extlink").val(data.redirect_id || '');
+            if (data.zoneId) { $("#zoneId").val(data.zoneId); }
+            if (data.is_publish) { $("#is_publish").prop("checked", true); }
+            if (data.photo) { $(".user_image").append('<img class="rounded" style="width:50px" src="' + data.photo + '" alt="image">'); }
+            if (data.redirect_type) { $("input[name=redirect_type][value=" + data.redirect_type + "]").prop('checked', true); }
+            toggleRedirectUI();
+        });
+
+        $(".edit-setting-btn").click(function(){
+            $(".error_top").hide().html('');
+            var title = $(".title").val();
+            if(!title){ $(".error_top").show().html('<p>{{trans('lang.title_error')}}</p>'); window.scrollTo(0,0); return; }
+            var fd = new FormData();
+            fd.append('title', title);
+            fd.append('set_order', $('.set_order').val() || 0);
+            fd.append('is_publish', $('#is_publish').is(':checked') ? 1 : 0);
+            fd.append('position', $('#position').val() || 'top');
+            fd.append('zoneId', $('#zoneId').val() || '');
+            fd.append('zoneTitle', $('#zoneId option:selected').text() || '');
+            fd.append('redirect_type', $(".redirect_type:checked").val() || 'external_link');
+            var redirect_id = '';
+            if($("#store").is(':checked')) redirect_id = $('#storeId').val()||'';
+            else if($("#product").is(':checked')) redirect_id = $('#productId').val()||'';
+            else if($("#external_links").is(':checked')) redirect_id = $('#external_link').val()||'';
+            fd.append('redirect_id', redirect_id);
+            var fileInput = $("input[type='file']")[0];
+            if (fileInput && fileInput.files && fileInput.files[0]) { fd.append('photo', fileInput.files[0]); }
+            $.ajax({ url: '{{ route('menu-items.update', ['id'=>':id']) }}'.replace(':id', id), method: 'POST', data: fd, processData: false, contentType: false, headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' } })
+                .done(function(){ window.location.href = '{{ route('setting.banners') }}'; })
+                .fail(function(xhr){ $(".error_top").show().html('<p>Failed ('+xhr.status+'): '+xhr.responseText+'</p>'); window.scrollTo(0,0); });
+        });
+    });
 </script>
 @endsection

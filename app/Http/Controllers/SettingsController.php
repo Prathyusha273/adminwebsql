@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use Illuminate\Support\Facades\DB;
 
 class SettingsController extends Controller
 {
@@ -153,25 +154,6 @@ class SettingsController extends Controller
         return view('settings.app.specialDiscountOffer');
     }
 
-    public function menuItems()
-    {
-        return view('settings.menu_items.index');
-
-    }
-
-
-    public function menuItemsCreate()
-    {
-        return view('settings.menu_items.create');
-
-    }
-
-    public function menuItemsEdit($id)
-    {
-        return view('settings.menu_items.edit')->with('id', $id);
-
-    }
-
     public function story()
     {
         return view('settings.app.story');
@@ -206,5 +188,65 @@ class SettingsController extends Controller
     public function surgeRules()
     {
       return view('settings.app.surgeRules');
+    }
+
+    // Email templates SQL endpoints
+    public function emailTemplatesData()
+    {
+        $start = (int) request('start', 0);
+        $length = (int) request('length', 10);
+        $draw = (int) request('draw', 1);
+        $search = strtolower((string) data_get(request('search'), 'value', ''));
+
+        $q = DB::table('email_templates');
+        if ($search !== '') {
+            $q->where(function($qq) use ($search){
+                $qq->where('type','like','%'.$search.'%')
+                   ->orWhere('subject','like','%'.$search.'%');
+            });
+        }
+        $total = (clone $q)->count();
+        $rows = $q->orderBy('type','asc')->offset($start)->limit($length)->get();
+
+        $data = [];
+        foreach ($rows as $r) {
+            $editUrl = route('email-templates.save', $r->id);
+            $typeLabel = $r->type; // mapping done in view if needed
+            $actions = '<span class="action-btn"><a href="'.$editUrl.'"><i class="mdi mdi-lead-pencil" title="Edit"></i></a> '
+                    .'<a href="javascript:void(0)" class="delete-template" data-id="'.$r->id.'"><i class="mdi mdi-delete" title="Delete"></i></a></span>';
+            $data[] = [ $typeLabel, e($r->subject ?: ''), $actions ];
+        }
+        return response()->json(['draw'=>$draw,'recordsTotal'=>$total,'recordsFiltered'=>$total,'data'=>$data]);
+    }
+
+    public function emailTemplatesJson($id)
+    {
+        $rec = DB::table('email_templates')->where('id',$id)->first();
+        if(!$rec) return response()->json(['error'=>'Not found'],404);
+        return response()->json($rec);
+    }
+
+    public function emailTemplatesUpdate($id)
+    {
+        request()->validate([
+            'subject'=>'required|string',
+            'message'=>'required|string',
+            'isSendToAdmin'=>'nullable'
+        ]);
+        $updated = DB::table('email_templates')->where('id',$id)->update([
+            'subject'=>request('subject'),
+            'message'=>request('message'),
+            'isSendToAdmin'=>request()->boolean('isSendToAdmin') ? 1 : 0,
+        ]);
+        if ($updated === false) return response()->json(['success'=>false],500);
+        return response()->json(['success'=>true]);
+    }
+
+    public function emailTemplatesDelete($id)
+    {
+        $exists = DB::table('email_templates')->where('id',$id)->exists();
+        if(!$exists) return response()->json(['success'=>false],404);
+        DB::table('email_templates')->where('id',$id)->delete();
+        return response()->json(['success'=>true]);
     }
 }

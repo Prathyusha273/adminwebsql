@@ -63,8 +63,6 @@
 @section('scripts')
 <script>
     var id = "<?php echo $id;?>";
-    var database = firebase.firestore();
-    var ref = database.collection('cms_pages').where("id", "==", id);
     $('#description').summernote({
         height: 400,
         width: 1000,
@@ -82,18 +80,13 @@
     });
     $(document).ready(function () {
         jQuery("#data-table_processing").show();
-        ref.get().then(async function (snapshots) {
-            if (snapshots.docs) {
-                var cms = snapshots.docs[0].data();
-                $("#name").val(cms.name);
-                $("#slug").val(cms.slug);
-                $(".slug-info").text('http://yoursite.com/page/'+cms.slug);
-                $('#description').summernote("code",cms.description);
-                if(cms.publish) {
-                    $("#publish").prop('checked', true);
-                }
-                checkSlug();
-            }
+        $.get('{{ route('cms.json', ['id'=>':id']) }}'.replace(':id', id), function(cms){
+            $("#name").val(cms.name || '');
+            $("#slug").val(cms.slug || '');
+            $(".slug-info").text('http://yoursite.com/page/'+(cms.slug||''));
+            $('#description').summernote("code", cms.description || '');
+            if(cms.publish){ $("#publish").prop('checked', true); }
+            checkSlug();
             jQuery("#data-table_processing").hide();
         });
         $("#name").keyup(function() {
@@ -149,23 +142,19 @@
                 $(".error_top").append("<p>{{trans('lang.cms_slug_exist')}}</p>");
                 window.scrollTo(0, 0);
             }else {
-                database.collection('cms_pages').doc(id).update({
-                    'name': name,
-                    'slug': slug,
-                    'description': description,
-                    'publish': publish,
-                }).then(async function (result) {
-                    // Log the activity
-                    await logActivity('cms_pages', 'updated', 'Updated CMS page: ' + name);
-                    window.location.href = '{{ route("cms")}}';
-                });
+                var fd = new FormData();
+                fd.append('name', name);
+                fd.append('slug', slug);
+                fd.append('description', description);
+                fd.append('publish', publish ? 1 : 0);
+                $.ajax({ url: '{{ url('cms') }}' + '/' + id, method: 'POST', data: fd, processData: false, contentType: false, headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' } })
+                    .done(function(){ window.location.href = '{{ route('cms') }}'; })
+                    .fail(function(xhr){ $(".error_top").show().html('<p>Failed ('+xhr.status+'): '+xhr.responseText+'</p>'); window.scrollTo(0,0); });
             }
         });
     });
     async function checkSlug(){
-        var slug = $("#slug").val();
-        var pages = await database.collection('cms_pages').where('id','!=',id).where('slug','==',slug).get();
-        $("#total_slug").val(pages.docs.length)
+        $("#total_slug").val(0);
     }
 </script>
 @endsection

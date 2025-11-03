@@ -3,28 +3,11 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Google\Cloud\Firestore\FirestoreClient;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use App\Models\MartBanner;
 
-/**
- * MartBannerController
- * 
- * Handles CRUD operations for mart banner items.
- * 
- * Fields:
- * - title: Banner title
- * - description: Banner description
- * - text: Additional text content
- * - photo: Banner image
- * - position: Banner position (top, middle, bottom)
- * - redirect_type: Type of redirect (store, product, external_link)
- * - storeId: Store ID for store redirects
- * - productId: Product ID for product redirects
- * - external_link: External URL for external redirects
- * - is_publish: Publication status
- * - set_order: Display order
- * - created_at: Creation timestamp
- * - updated_at: Last update timestamp
- */
 class MartBannerController extends Controller
 {
     public function __construct()
@@ -32,194 +15,174 @@ class MartBannerController extends Controller
         $this->middleware('auth');
     }
 
-    /**
-     * Display a listing of mart banner items
-     */
+    // Views
     public function index()
     {
         return view('martBanners.index');
     }
 
-    /**
-     * Show the form for creating a new mart banner item
-     */
     public function create()
     {
         return view('martBanners.create');
     }
 
-    /**
-     * Show the form for editing the specified mart banner item
-     */
     public function edit($id)
     {
         return view('martBanners.edit')->with('id', $id);
     }
 
-    /**
-     * Store a newly created mart banner item in Firestore
-     */
+    // DataTables provider (SQL)
+    public function data(Request $request)
+    {
+        $draw = (int) $request->input('draw', 1);
+        $start = (int) $request->input('start', 0);
+        $length = (int) $request->input('length', 10);
+        $search = strtolower((string) data_get($request->input('search'), 'value', ''));
+
+        $q = DB::table('mart_banners');
+        if ($search !== '') {
+            $q->where(function($qq) use ($search){
+                $qq->where('title','like','%'.$search.'%')
+                   ->orWhere('position','like','%'.$search.'%')
+                   ->orWhere('zoneTitle','like','%'.$search.'%');
+            });
+        }
+        $total = (clone $q)->count();
+        $rows = $q->orderBy('set_order','asc')->offset($start)->limit($length)->get();
+
+        $items = [];
+        foreach ($rows as $r) {
+            $items[] = [
+                'id' => $r->id,
+                'title' => (string) ($r->title ?? ''),
+                'position' => (string) ($r->position ?? ''),
+                'zoneTitle' => (string) ($r->zoneTitle ?? ''),
+                'set_order' => (int) ($r->set_order ?? 0),
+                'is_publish' => (bool) ($r->is_publish ?? 0),
+                'photo' => (string) ($r->photo ?? ''),
+            ];
+        }
+        return response()->json(['draw'=>$draw,'recordsTotal'=>$total,'recordsFiltered'=>$total,'data'=>$items]);
+    }
+
+    // JSON for single banner
+    public function json($id)
+    {
+        $b = MartBanner::find($id);
+        if(!$b) return response()->json(['error'=>'Not found'],404);
+        return response()->json($b);
+    }
+
+    // Create (SQL)
     public function store(Request $request)
     {
-        try {
-            // Initialize Firestore client
-            $firestore = new FirestoreClient([
-                'projectId' => config('firestore.project_id'),
-                'keyFilePath' => config('firestore.credentials'),
-            ]);
-
-            $data = $request->all();
-            
-            // Prepare banner data
-            $bannerData = [
-                'title' => $data['title'] ?? '',
-                'description' => $data['description'] ?? '',
-                'text' => $data['text'] ?? '',
-                'photo' => $data['photo'] ?? '',
-                'position' => $data['position'] ?? 'top',
-                'redirect_type' => $data['redirect_type'] ?? 'external_link',
-                'storeId' => $data['storeId'] ?? null,
-                'productId' => $data['productId'] ?? null,
-                'external_link' => $data['external_link'] ?? null,
-                'is_publish' => $data['is_publish'] ?? false,
-                'set_order' => intval($data['set_order'] ?? 0),
-                'created_at' => new \Google\Cloud\Core\Timestamp(new \DateTime()),
-                'updated_at' => new \Google\Cloud\Core\Timestamp(new \DateTime())
-            ];
-
-            // Add to Firestore
-            $docRef = $firestore->collection('mart_banners')->add($bannerData);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Mart banner item created successfully',
-                'id' => $docRef->id()
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error creating mart banner item: ' . $e->getMessage()
-            ], 500);
+        $request->validate([
+            'title' => 'required|string|max:255',
+            'set_order' => 'nullable|integer',
+            'position' => 'nullable|string|max:255',
+            'screen' => 'nullable|string|max:255',
+            'photo' => 'nullable|image',
+            'redirect_type' => 'nullable|string|max:255',
+            'external_link' => 'nullable|string|max:2000',
+            'ads_link' => 'nullable|string|max:2000',
+        ]);
+        $id = (string) Str::uuid();
+        $imageUrl = null;
+        if ($request->hasFile('photo')) {
+            $imageUrl = Storage::url($request->file('photo')->store('public/uploads/mart-banners'));
         }
+        MartBanner::create([
+            'id' => $id,
+            'title' => $request->input('title',''),
+            'description' => $request->input('description',''),
+            'text' => $request->input('text',''),
+            'photo' => $imageUrl,
+            'position' => $request->input('position','top'),
+            'screen' => $request->input('screen','home'),
+            'redirect_type' => $request->input('redirect_type','external_link'),
+            'storeId' => $request->input('storeId'),
+            'productId' => $request->input('productId'),
+            'martCategoryId' => $request->input('martCategoryId'),
+            'ads_link' => $request->input('ads_link'),
+            'external_link' => $request->input('external_link'),
+            'is_publish' => $request->boolean('is_publish') ? 1 : 0,
+            'set_order' => (int) $request->input('set_order', 0),
+            'zoneId' => $request->input('zoneId') ?? $request->input('zone_select'),
+            'zoneTitle' => $request->input('zoneTitle') ?? '',
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+        return response()->json(['success'=>true,'id'=>$id]);
     }
 
-    /**
-     * Update the specified mart banner item in Firestore
-     */
+    // Update (SQL)
     public function update(Request $request, $id)
     {
-        try {
-            // Initialize Firestore client
-            $firestore = new FirestoreClient([
-                'projectId' => config('firestore.project_id'),
-                'keyFilePath' => config('firestore.credentials'),
-            ]);
-
-            $data = $request->all();
-            
-            // Prepare banner data
-            $bannerData = [
-                'title' => $data['title'] ?? '',
-                'description' => $data['description'] ?? '',
-                'text' => $data['text'] ?? '',
-                'photo' => $data['photo'] ?? '',
-                'position' => $data['position'] ?? 'top',
-                'redirect_type' => $data['redirect_type'] ?? 'external_link',
-                'storeId' => $data['storeId'] ?? null,
-                'productId' => $data['productId'] ?? null,
-                'external_link' => $data['external_link'] ?? null,
-                'is_publish' => $data['is_publish'] ?? false,
-                'set_order' => intval($data['set_order'] ?? 0),
-                'updated_at' => new \Google\Cloud\Core\Timestamp(new \DateTime())
-            ];
-
-            // Update in Firestore
-            $firestore->collection('mart_banners')->document($id)->set($bannerData, ['merge' => true]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Mart banner item updated successfully'
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error updating mart banner item: ' . $e->getMessage()
-            ], 500);
+        $b = MartBanner::findOrFail($id);
+        $request->validate([
+            'title' => 'required|string|max:255',
+            'set_order' => 'nullable|integer',
+            'position' => 'nullable|string|max:255',
+            'screen' => 'nullable|string|max:255',
+            'photo' => 'nullable|image',
+            'redirect_type' => 'nullable|string|max:255',
+            'external_link' => 'nullable|string|max:2000',
+            'ads_link' => 'nullable|string|max:2000',
+        ]);
+        $imageUrl = $b->photo;
+        if ($request->hasFile('photo')) {
+            $imageUrl = Storage::url($request->file('photo')->store('public/uploads/mart-banners'));
         }
+        $b->update([
+            'title' => $request->input('title',''),
+            'description' => $request->input('description',''),
+            'text' => $request->input('text',''),
+            'photo' => $imageUrl,
+            'position' => $request->input('position','top'),
+            'screen' => $request->input('screen','home'),
+            'redirect_type' => $request->input('redirect_type','external_link'),
+            'storeId' => $request->input('storeId'),
+            'productId' => $request->input('productId'),
+            'martCategoryId' => $request->input('martCategoryId'),
+            'ads_link' => $request->input('ads_link'),
+            'external_link' => $request->input('external_link'),
+            'is_publish' => $request->boolean('is_publish') ? 1 : 0,
+            'set_order' => (int) $request->input('set_order', 0),
+            'zoneId' => $request->input('zoneId') ?? $request->input('zone_select'),
+            'zoneTitle' => $request->input('zoneTitle') ?? '',
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+        return response()->json(['success'=>true]);
     }
 
-    /**
-     * Remove the specified mart banner item from Firestore
-     */
-    public function destroy($id)
-    {
-        try {
-            // Initialize Firestore client
-            $firestore = new FirestoreClient([
-                'projectId' => config('firestore.project_id'),
-                'keyFilePath' => config('firestore.credentials'),
-            ]);
-
-            // Delete from Firestore
-            $firestore->collection('mart_banners')->document($id)->delete();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Mart banner item deleted successfully'
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error deleting mart banner item: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Toggle publish status of mart banner item
-     */
+    // Toggle publish
     public function togglePublish($id)
     {
-        try {
-            // Initialize Firestore client
-            $firestore = new FirestoreClient([
-                'projectId' => config('firestore.project_id'),
-                'keyFilePath' => config('firestore.credentials'),
-            ]);
+        $b = MartBanner::find($id);
+        if(!$b) return response()->json(['success'=>false,'message'=>'Not found'],404);
+        $b->is_publish = $b->is_publish ? 0 : 1;
+        $b->updated_at = date('Y-m-d H:i:s');
+        $b->save();
+        return response()->json(['success'=>true,'is_publish'=>(bool)$b->is_publish]);
+    }
 
-            // Get current document
-            $doc = $firestore->collection('mart_banners')->document($id)->snapshot();
-            
-            if (!$doc->exists()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Mart banner item not found'
-                ], 404);
-            }
+    // Delete
+    public function destroy($id)
+    {
+        $b = MartBanner::find($id);
+        if(!$b) return response()->json(['success'=>false],404);
+        $b->delete();
+        return response()->json(['success'=>true]);
+    }
 
-            $currentData = $doc->data();
-            $newPublishStatus = !($currentData['is_publish'] ?? false);
-
-            // Update publish status
-            $firestore->collection('mart_banners')->document($id)->update([
-                ['path' => 'is_publish', 'value' => $newPublishStatus],
-                ['path' => 'updated_at', 'value' => new \Google\Cloud\Core\Timestamp(new \DateTime())]
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Publish status updated successfully',
-                'is_publish' => $newPublishStatus
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error updating publish status: ' . $e->getMessage()
-            ], 500);
+    // Bulk delete
+    public function bulkDelete(Request $request)
+    {
+        $ids = (array) $request->input('ids', []);
+        if (empty($ids)) {
+            return response()->json(['success'=>false,'message'=>'No ids'],400);
         }
+        MartBanner::whereIn('id',$ids)->delete();
+        return response()->json(['success'=>true]);
     }
 }

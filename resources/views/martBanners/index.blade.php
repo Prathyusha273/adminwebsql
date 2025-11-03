@@ -88,22 +88,7 @@
 <script src="{{ asset('js/toastr.js') }}"></script>
 
 <script type="text/javascript">
-    var database = firebase.firestore();
-    var refData = database.collection('mart_banners').orderBy('set_order');
-    var placeholderImage = '';
-    var placeholder = database.collection('settings').doc('placeHolderImage');
-    placeholder.get().then(async function(snapshotsimage) {
-        var placeholderImageData = snapshotsimage.data();
-        placeholderImage = placeholderImageData.image;
-    })
-
-    var zoneNames = {};
-    // Load zones for display
-    database.collection('zone').where('publish', '==', true).get().then(async function(snapshots) {
-        snapshots.docs.forEach(doc => {
-            zoneNames[doc.id] = doc.data().name;
-        });
-    });
+    var placeholderImage = '{{ asset('images/default_image.png') }}';
     var user_permissions = '<?php echo @session("user_permissions")?>';
     user_permissions = Object.values(JSON.parse(user_permissions));
     var checkDeletePermission = false;
@@ -117,90 +102,35 @@
             processing: false, // Show processing indicator
             serverSide: true, // Enable server-side processing
             responsive: true,
-            ajax: function (data, callback, settings) {
-                const start = data.start;
-                const length = data.length;
-                const searchValue = data.search.value.toLowerCase();
-                const orderColumnIndex = data.order[0].column;
-                const orderDirection = data.order[0].dir;
-                const orderableColumns = (checkDeletePermission) ? ['', 'title', 'position', 'zone', 'set_order', '', ''] : ['title', 'position', 'zone', 'set_order', '', '']; // Ensure this matches the actual column names
-                const orderByField = orderableColumns[orderColumnIndex]; // Adjust the index to match your table
-                if (searchValue.length >= 3 || searchValue.length === 0) {
-                    $('#data-table_processing').show();
-                }
-                refData.get().then(async function (querySnapshot) {
-                    if (querySnapshot.empty) {
-                        $('.total_count').text(0);
-                        console.error("No data found in Firestore.");
-                        $('#data-table_processing').hide(); // Hide loader
-                        callback({
-                            draw: data.draw,
-                            recordsTotal: 0,
-                            recordsFiltered: 0,
-                            data: [] // No data
-                        });
-                        return;
-                    }
-                    let records = [];
-                    let filteredRecords = [];
-                    querySnapshot.forEach(function (doc) {
-                        let childData = doc.data();
-                        childData.id = doc.id; // Ensure the document ID is included in the data
-                        childData.zone = zoneNames[childData.zoneId] || '';
-                        if (searchValue) {
-                            if (
-                                (childData.title && childData.title.toString().toLowerCase().includes(searchValue)) ||
-                                (childData.position && childData.position.toString().toLowerCase().includes(searchValue)) ||
-                                (childData.zone && childData.zone.toString().toLowerCase().includes(searchValue))
-                            ) {
-                                filteredRecords.push(childData);
-                            }
+            ajax: function (data, callback) {
+                const params = { start: data.start, length: data.length, draw: data.draw, search: data.search.value };
+                $.get('{{ route('mart.banners.data') }}', params, function(json){
+                    $('.total_count').text(json.recordsTotal || 0);
+                    var rows = [];
+                    var canDelete = (checkDeletePermission);
+                    (json.data || []).forEach(function(item){
+                        var route1 = '{{ route('mart.banners.edit', ':id') }}'.replace(':id', item.id);
+                        var imageHtml = (!item.photo) ? '<img alt="" style="width:70px;height:70px;" src="'+placeholderImage+'" />'
+                                                       : '<img onerror="this.onerror=null;this.src=\''+placeholderImage+'\'" style="width:70px;height:70px;" src="'+item.photo+'" />';
+                        var publishHtml = item.is_publish ? '<label class="switch"><input type="checkbox" checked data-id="'+item.id+'" class="toggle-publish"><span class="slider round"></span></label>'
+                                                           : '<label class="switch"><input type="checkbox" data-id="'+item.id+'" class="toggle-publish"><span class="slider round"></span></label>';
+                        var actionsHtml = '<span class="action-btn"><a href="'+route1+'"><i class="mdi mdi-lead-pencil" title="Edit"></i></a>';
+                        if (canDelete) { actionsHtml += ' <a href="javascript:void(0)" data-id="'+item.id+'" class="delete-banner"><i class="mdi mdi-delete"></i></a>'; }
+                        actionsHtml += '</span>';
+                        var zoneBadge = item.zoneTitle ? '<span class="badge badge-info">'+item.zoneTitle+'</span>' : '<span class="text-muted">No Zone</span>';
+                        var checkboxHtml = canDelete ? '<td class="delete-all"><input type="checkbox" class="is_open" dataId="'+item.id+'"><label class="col-3 control-label"></label></td>' : '';
+                        if (canDelete) {
+                            rows.push([checkboxHtml, imageHtml + '<a href="'+route1+'">'+(item.title||'')+'</a>', item.position||'', zoneBadge, (item.set_order||0), publishHtml, actionsHtml]);
                         } else {
-                            filteredRecords.push(childData);
+                            rows.push([imageHtml + '<a href="'+route1+'">'+(item.title||'')+'</a>', item.position||'', zoneBadge, (item.set_order||0), publishHtml, actionsHtml]);
                         }
                     });
-                    filteredRecords.sort((a, b) => {
-                        let aValue = a[orderByField] ? a[orderByField].toString().toLowerCase() : '';
-                        let bValue = b[orderByField] ? b[orderByField].toString().toLowerCase() : '';
-                        if (orderDirection === 'asc') {
-                            return (aValue > bValue) ? 1 : -1;
-                        } else {
-                            return (aValue < bValue) ? 1 : -1;
-                        }
-                    });
-                    const totalRecords = filteredRecords.length;
-                    $('.total_count').text(totalRecords);
-                    const paginatedRecords = filteredRecords.slice(start, start + length);
-                    paginatedRecords.forEach(function (childData) {
-                        var route1 = '{{route("mart.banners.edit", ":id")}}';
-                        route1 = route1.replace(':id', childData.id);
-                        var imageHtml = childData.photo == '' || childData.photo == null ? '<img alt="" width="100%" style="width:70px;height:70px;" src="' + placeholderImage + '" alt="image">' : '<img onerror="this.onerror=null;this.src=\'' + placeholderImage + '\'" alt="" width="100%" style="width:70px;height:70px;" src="' + childData.photo + '" alt="image">'
-                        records.push([
-                            checkDeletePermission ? '<td class="delete-all"><input type="checkbox" name="record" id="is_open_' + childData.id + '" class="is_open" data-id="' + childData.id + '" style="width:30px;"><label class="col-3 control-label" for="is_open_' + childData.id + '" ></label></td>' : '',
-                            imageHtml + '<a href="' + route1 + '">' + (childData.title || '') + '</a>',
-                            childData.position || '',
-                            childData.zone ? '<span class="badge badge-info">' + childData.zone + '</span>' : '<span class="text-muted">No Zone</span>',
-                            childData.set_order || 0,
-                            childData.is_publish ? '<label class="switch"><input type="checkbox" checked id="' + childData.id + '" name="isSwitch"><span class="slider round"></span></label>' : '<label class="switch"><input type="checkbox" id="' + childData.id + '" name="isSwitch"><span class="slider round"></span></label>',
-                            '<span class="action-btn"><a href="' + route1 + '"><i class="mdi mdi-lead-pencil" title="Edit"></i></a><?php if (in_array('mart_banners.delete', json_decode(@session('user_permissions'), true))) { ?> <a id="'+childData.id+'" name="mart-banner-delete" class="delete-btn" href="javascript:void(0)"><i class="mdi mdi-delete"></i></a><?php } ?></span>'
-                        ]);
-                    });
-                    $('#data-table_processing').hide(); // Hide loader
-                    callback({
-                        draw: data.draw,
-                        recordsTotal: totalRecords, // Total number of records in Firestore
-                        recordsFiltered: totalRecords, // Number of records after filtering (if any)
-                        data: records // The actual data to display in the table
-                    });
-                }).catch(function (error) {
-                    console.error("Error fetching data from Firestore:", error);
-                    $('#data-table_processing').hide(); // Hide loader
-                    callback({
-                        draw: data.draw,
-                        recordsTotal: 0,
-                        recordsFiltered: 0,
-                        data: [] // No data due to error
-                    });
+                    callback({ draw: json.draw, recordsTotal: json.recordsTotal, recordsFiltered: json.recordsFiltered, data: rows });
+                    jQuery('#data-table_processing').hide();
+                }).fail(function(xhr){
+                    jQuery('#data-table_processing').hide();
+                    callback({ draw: data.draw, recordsTotal: 0, recordsFiltered: 0, data: [] });
+                    alert('Failed to load banners ('+xhr.status+'): '+xhr.statusText);
                 });
             },
             order: (checkDeletePermission) ? [1, 'asc'] : [0, 'asc'],
@@ -214,163 +144,43 @@
             },
         });
         table.columns.adjust().draw();
-        function debounce(func, wait) {
-            let timeout;
-            const context = this;
-            return function(...args) {
-                clearTimeout(timeout);
-                timeout = setTimeout(() => func.apply(context, args), wait);
-            };
-        }
-        $('#search-input').on('input', debounce(function () {
-            const searchValue = $(this).val();
-            if (searchValue.length >= 3) {
-                $('#data-table_processing').show();
-                table.search(searchValue).draw();
-            } else if (searchValue.length === 0) {
-                $('#data-table_processing').show();
-                table.search('').draw();
-            }
-        }, 300));
     })
 
-    /* Toggle publish action code start */
-    $(document).on("click", "input[name='isSwitch']", async function(e) {
-        var ischeck = $(this).is(':checked');
-        var id = this.id;
-
-        // Get banner item title for logging
-        var bannerTitle = '';
-        try {
-            var doc = await database.collection('mart_banners').doc(id).get();
-            if (doc.exists) {
-                bannerTitle = doc.data().title;
-            }
-        } catch (error) {
-            console.error('Error getting banner title:', error);
-        }
-
-        if (ischeck) {
-            database.collection('mart_banners').doc(id).update({
-                'is_publish': true
-            }).then(async function(result) {
-                toastr.success('Banner published successfully');
-                // Log activity for banner item publish
-                logActivity('mart_banner_items', 'published', 'Published mart banner item: ' + bannerTitle);
-            }).catch(function(error) {
-                toastr.error('Error publishing banner: ' + error.message);
-            });
-        } else {
-            database.collection('mart_banners').doc(id).update({
-                'is_publish': false
-            }).then(async function(result) {
-                toastr.success('Banner unpublished successfully');
-                // Log activity for banner item unpublish
-                logActivity('mart_banner_items', 'unpublished', 'Unpublished mart banner item: ' + bannerTitle);
-            }).catch(function(error) {
-                toastr.error('Error unpublishing banner: ' + error.message);
-            });
-        }
+    // Toggle publish
+    $('#martBannersTable').on('change', '.toggle-publish', function(){
+        var id = $(this).data('id');
+        var $cb = $(this);
+        var intended = $cb.is(':checked');
+        $cb.prop('disabled', true);
+        $.post({ url: '{{ url('mart-banners') }}' + '/' + id + '/toggle-publish', headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' } })
+            .done(function(resp){ $cb.prop('checked', !!resp.is_publish); })
+            .fail(function(xhr){ $cb.prop('checked', !intended); alert('Failed to update ('+xhr.status+'): '+xhr.statusText); })
+            .always(function(){ $cb.prop('disabled', false); });
     });
-    /* Toggle publish action code end */
 
     // Handle select all
     $('#select-all').on('change', function() {
         $('.select-item').prop('checked', $(this).is(':checked'));
     });
 
-    // Handle bulk delete
-    $('#deleteAll').on('click', function() {
-        var selectedIds = [];
-        $('.select-item:checked').each(function() {
-            selectedIds.push($(this).val());
-        });
-
-        if (selectedIds.length === 0) {
-            toastr.warning('Please select items to delete');
-            return;
-        }
-
-        if (confirm('Are you sure you want to delete ' + selectedIds.length + ' selected banner items?')) {
-            // Get all selected banner titles for logging
-            var selectedTitles = [];
-            var promises = selectedIds.map(function(id) {
-                return database.collection('mart_banners').doc(id).get();
-            });
-
-            Promise.all(promises).then(function(docs) {
-                docs.forEach(function(doc) {
-                    if (doc.exists) {
-                        selectedTitles.push(doc.data().title);
-                    }
-                });
-
-                // Delete selected items
-                var deletePromises = selectedIds.map(function(id) {
-                    return database.collection('mart_banners').doc(id).delete();
-                });
-
-                Promise.all(deletePromises).then(function() {
-                    toastr.success('Selected banner items deleted successfully');
-                    table.ajax.reload();
-
-                    // Log activity for bulk delete
-                    logActivity('mart_banner_items', 'deleted', 'Bulk deleted mart banner items: ' + selectedTitles.join(', '));
-                }).catch(function(error) {
-                    toastr.error('Error deleting banner items: ' + error.message);
-                });
-            }).catch(function(error) {
-                console.error('Error getting banner titles:', error);
-            });
-        }
+    // Bulk delete
+    $(document).on('click', '#deleteAll', function(){
+        var ids = []; $('#martBannersTable .is_open:checked').each(function(){ ids.push($(this).attr('dataId')); });
+        if (ids.length === 0) { alert('Please select items to delete'); return; }
+        if (!confirm('Are you sure you want to delete selected items?')) return;
+        $.post({ url: '{{ route('mart.banners.bulkDelete') }}', headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' }, data: { ids: ids } })
+            .done(function(){ $('#martBannersTable').DataTable().ajax.reload(null,false); })
+            .fail(function(xhr){ alert('Failed to delete ('+xhr.status+'): '+xhr.statusText); });
     });
 
-    // Handle individual delete
-    $(document).on('click', 'a[name="mart-banner-delete"]', function() {
-        var id = this.id;
-
-        // Get banner item title for logging
-        var bannerTitle = '';
-        try {
-            database.collection('mart_banners').doc(id).get().then(function(doc) {
-                if (doc.exists) {
-                    bannerTitle = doc.data().title;
-                }
-            });
-        } catch (error) {
-            console.error('Error getting banner title:', error);
-        }
-
-        if (confirm('Are you sure you want to delete this banner item?')) {
-            database.collection('mart_banners').doc(id).delete().then(function() {
-                toastr.success('Banner item deleted successfully');
-                table.ajax.reload();
-
-                // Log activity for banner item delete
-                logActivity('mart_banner_items', 'deleted', 'Deleted mart banner item: ' + bannerTitle);
-            }).catch(function(error) {
-                toastr.error('Error deleting banner item: ' + error.message);
-            });
-        }
+    // Single delete
+    $('#martBannersTable').on('click', '.delete-banner', function(){
+        var id = $(this).data('id');
+        if(!confirm('Are you sure you want to delete this banner item?')) return;
+        $.ajax({ url: '{{ url('mart-banners') }}' + '/' + id, method: 'DELETE', headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' } })
+            .done(function(){ $('#martBannersTable').DataTable().ajax.reload(null,false); })
+            .fail(function(xhr){ alert('Failed to delete ('+xhr.status+'): '+xhr.statusText); });
     });
-
-    // Activity logging function
-    async function logActivity(module, action, description) {
-        try {
-            await database.collection('activity_logs').add({
-                module: module,
-                action: action,
-                description: description,
-                user_id: '{{ auth()->id() }}',
-                user_name: '{{ auth()->user()->name }}',
-                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                ip_address: '{{ request()->ip() }}',
-                user_agent: '{{ request()->userAgent() }}'
-            });
-        } catch (error) {
-            console.error('Error logging activity:', error);
-        }
-    }
 </script>
 
 <!-- Add CSS for the publish toggle switch -->

@@ -58,47 +58,31 @@
 @endsection
 @section('scripts')
     <script>
-        var database = firebase.firestore();
         var requestId = "{{$id}}";
         $(document).ready(function () {
-            $('.onboard_menu').addClass('active');
             jQuery("#data-table_processing").show();
-            var ref = database.collection('on_boarding').where("id", "==", requestId);
-            ref.get().then(async function (snapshots) {
-                var data = snapshots.docs[0].data();
-                $(".title").val(data.title);
-                $(".description").val(data.description);
-                jQuery("#data-table_processing").hide();
-            })
+            $.get('{{ route('on-board.json', ['id'=>':id']) }}'.replace(':id', requestId), function(data){
+                $(".title").val(data.title || '');
+                $(".description").val(data.description || '');
+            }).always(function(){ jQuery("#data-table_processing").hide(); });
         });
         $(".edit-setting-btn").click(function () {
-            jQuery("#overlay").show();
             var title = $(".title").val();
             var description = $(".description").val();
             if (title == '') {
-                $(".error_top").show();
-                $(".error_top").html("");
-                $(".error_top").append("<p>{{trans('lang.title_help')}}</p>");
+                $(".error_top").show().html("<p>{{trans('lang.title_help')}}</p>");
                 window.scrollTo(0, 0);
             } else if (description == '') {
-                $(".error_top").show();
-                $(".error_top").html("");
-                $(".error_top").append("<p>{{trans('lang.description_help')}}</p>");
+                $(".error_top").show().html("<p>{{trans('lang.description_help')}}</p>");
                 window.scrollTo(0, 0);
             } else {
-                database.collection('on_boarding').doc(requestId).update({
-                    'title': title,
-                    'description': description,
-                }).then(async function (result) {
-                    // Log the activity
-                    await logActivity('on_boarding', 'updated', 'Updated on-boarding screen: ' + title);
-                    window.location.href = '{{ route("on-board")}}';
-                }).catch(function (error) {
-                    $(".error_top").show();
-                    $(".error_top").html("");
-                    $(".error_top").append("<p>" + error + "</p>");
-                })
+                var fd = new FormData();
+                fd.append('title', title);
+                fd.append('description', description);
+                $.ajax({ url: '{{ url('on-board') }}' + '/' + requestId, method: 'POST', data: fd, processData: false, contentType: false, headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' } })
+                    .done(function(){ window.location.href = '{{ route('on-board') }}'; })
+                    .fail(function(xhr){ $(".error_top").show().html('<p>Failed ('+xhr.status+'): '+xhr.responseText+'</p>'); window.scrollTo(0,0); });
             }
-        })
+        });
     </script>
 @endsection

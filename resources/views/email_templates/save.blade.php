@@ -69,11 +69,7 @@
         @section('scripts')
             <script>
                 var requestId = "<?php echo $id; ?>";
-                var database = firebase.firestore();
-                var createdAt = firebase.firestore.FieldValue.serverTimestamp();
-                var id = (requestId == '') ? database.collection("tmp").doc().id : requestId;
-                var pagesize = 20;
-                var start = '';
+                var id = requestId;
                 $('#message').summernote({
                     height: 400,
                     width: 1000,
@@ -91,32 +87,25 @@
                 });
                 $(document).ready(function () {
                     if (requestId != '') {
-                        var ref = database.collection('email_templates').where('id', '==', id);
                         jQuery("#data-table_processing").show();
-                        ref.get().then(async function (snapshots) {
-                            if (snapshots.docs.length) {
-                                var data = snapshots.docs[0].data();
-                                $("#subject").val(data.subject);
-                                $('#message').summernote("code", data.message);
-                                if (data.isSendToAdmin) {
-                                    $("#is_send_to_admin").prop('checked', true);
-                                }
-                                var type = '';
-                                if (data.type == "new_order_placed") {
-                                    type = "{{trans('lang.new_order_placed')}}";
-                                } else if (data.type == "new_vendor_signup") {
-                                    type = "{{trans('lang.new_vendor_signup')}}";
-                                } else if (data.type == "payout_request") {
-                                    type = "{{trans('lang.payout_request')}}";
-                                } else if (data.type == "payout_request_status") {
-                                    type = "{{trans('lang.payout_request_status')}}";
-                                } else if (data.type == "wallet_topup") {
-                                    type = "{{trans('lang.wallet_topup')}}";
-                                }
-                                $('#type').val(type);
+                        $.get('{{ route('email-templates.json', ['id'=>':id']) }}'.replace(':id', id), function (data) {
+                            $("#subject").val(data.subject || '');
+                            $('#message').summernote("code", data.message || '');
+                            if (data.isSendToAdmin) { $("#is_send_to_admin").prop('checked', true); }
+                            var type = '';
+                            if (data.type == "new_order_placed") {
+                                type = "{{trans('lang.new_order_placed')}}";
+                            } else if (data.type == "new_vendor_signup") {
+                                type = "{{trans('lang.new_vendor_signup')}}";
+                            } else if (data.type == "payout_request") {
+                                type = "{{trans('lang.payout_request')}}";
+                            } else if (data.type == "payout_request_status") {
+                                type = "{{trans('lang.payout_request_status')}}";
+                            } else if (data.type == "wallet_topup") {
+                                type = "{{trans('lang.wallet_topup')}}";
                             }
-                            jQuery("#data-table_processing").hide();
-                        });
+                            $('#type').val(type);
+                        }).always(function(){ jQuery("#data-table_processing").hide(); });
                     }
                 });
                 $(".edit-setting-btn").click(async function () {
@@ -124,7 +113,6 @@
                     $(".error_top").hide();
                     var subject = $("#subject").val();
                     var message = $('#message').summernote('code');
-                    var type = $('#type').val();
                     var isSendToAdmin = $("#is_send_to_admin").is(":checked");
                     if (subject == "") {
                         $(".error_top").show();
@@ -139,46 +127,13 @@
                         window.scrollTo(0, 0);
                         return false;
                     } else {
-                        jQuery("#data-table_processing").show();
-                        requestId == '' ? (database.collection('email_templates').doc(id).set({
-                                'id': id,
-                                'subject': subject,
-                                'message': message,
-                                'type': type,
-                                'isSendToAdmin': isSendToAdmin,
-                                'createdAt': createdAt
-                            }).then(async function (result) {
-                                jQuery("#data-table_processing").hide();
-                                // Log the activity
-                                await logActivity('email_templates', 'created', 'Created new email template: ' + subject);
-                                $(".success_top").show();
-                                $(".success_top").html("");
-                                $(".success_top").append("<p>{{trans('lang.email_templates_created_success')}}</p>");
-                                window.scrollTo(0, 0);
-                                window.location.href = '{{ route("email-templates.index")}}';
-                            }).catch(function (error) {
-                                $(".error_top").show();
-                                $(".error_top").html("");
-                                $(".error_top").append("<p>" + error + "</p>");
-                            })) :
-                            (database.collection('email_templates').doc(id).update({
-                                'subject': subject,
-                                'message': message,
-                                'isSendToAdmin': isSendToAdmin,
-                            }).then(async function (result) {
-                                jQuery("#data-table_processing").hide();
-                                // Log the activity
-                                await logActivity('email_templates', 'updated', 'Updated email template: ' + subject);
-                                $(".success_top").show();
-                                $(".success_top").html("");
-                                $(".success_top").append("<p>{{trans('lang.email_templates_updated_success')}}</p>");
-                                window.scrollTo(0, 0);
-                                window.location.href = '{{ route("email-templates.index")}}';
-                            }).catch(function (error) {
-                                $(".error_top").show();
-                                $(".error_top").html("");
-                                $(".error_top").append("<p>" + error + "</p>");
-                            }));
+                        var fd = new FormData();
+                        fd.append('subject', subject);
+                        fd.append('message', message);
+                        fd.append('isSendToAdmin', isSendToAdmin ? 1 : 0);
+                        $.ajax({ url: '{{ url('email-templates') }}' + '/' + id, method: 'POST', data: fd, processData: false, contentType: false, headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' } })
+                            .done(function(){ window.location.href = '{{ route('email-templates.index') }}'; })
+                            .fail(function(xhr){ $(".error_top").show().html('<p>Failed ('+xhr.status+'): '+xhr.responseText+'</p>'); window.scrollTo(0,0); });
                     }
                 });
             </script>

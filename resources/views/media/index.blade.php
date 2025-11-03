@@ -134,8 +134,6 @@
 }
 </style>
 <script>
-var database = firebase.firestore();
-var placeholderImage = '';
 var selectedMedia = new Set();
 
 function formatExpandRow(data) {
@@ -157,10 +155,10 @@ async function buildHTML(val) {
     var id = val.id;
     var route1 = '{{route("media.edit",":id")}}';
     route1 = route1.replace(':id', id);
-    
+
     // Checkbox column with expand button - same structure as restaurants
     html.push('<td class="delete-all"><input type="checkbox" id="is_open_' + id + '" name="record" class="is_open" dataId="' + id + '"><label class="col-3 control-label" for="is_open_' + id + '" ></label><button class="expand-row" data-id="' + id + '" tabindex="-1" style="width: 18px; height: 18px; border-radius: 50%; background-color: #28a745; border: 2px solid #ffffff; display: inline-flex; align-items: center; justify-content: center; padding: 0; margin-left: 5px; position: relative; z-index: 1;"><i class="fa fa-plus" style="color: white; font-size: 8px;"></i></button></td>');
-    
+
     // Media Info column - same structure as restaurants
     var mediaInfo = '';
     if (val.image_path && val.image_path != '') {
@@ -174,10 +172,10 @@ async function buildHTML(val) {
         mediaInfo += 'UNKNOWN';
     }
     html.push(mediaInfo);
-    
+
     // Slug column
     html.push(val.slug || '');
-    
+
     // Actions column - same structure as restaurants
     var actionHtml = '<span class="action-btn">';
     actionHtml += '<a href="' + route1 + '" class="link-td"><i class="mdi mdi-lead-pencil" title="Edit"></i></a>';
@@ -187,16 +185,11 @@ async function buildHTML(val) {
     actionHtml += '<a id="' + id + '" name="media-delete" href="javascript:void(0)" class="delete-btn"><i class="mdi mdi-delete" title="Delete"></i></a>';
     actionHtml += '</span>';
     html.push(actionHtml);
-    
+
     return html;
 }
 
 $(document).ready(function () {
-    // Get placeholder image
-    database.collection('settings').doc('placeHolderImage').get().then(function (snap) {
-        if (snap.exists) placeholderImage = snap.data().image;
-    });
-
     var fieldConfig = {
         columns: [
             { key: 'name', header: "{{trans('Media Info')}}" },
@@ -205,85 +198,19 @@ $(document).ready(function () {
         fileName: "{{trans('Media List')}}",
     };
 
+    jQuery("#data-table_processing").show();
     var table = $('#mediaTable').DataTable({
         pageLength: 10,
-        processing: false,
+        processing: true,
         serverSide: true,
         responsive: true,
-        ajax: async function(data, callback, settings) {
-            const start = data.start;
-            const length = data.length;
-            const searchValue = data.search.value.toLowerCase();
-            const orderColumnIndex = data.order[0].column;
-            const orderDirection = data.order[0].dir;
-            const orderableColumns = ['', 'name', 'slug', ''];
-            const orderByField = orderableColumns[orderColumnIndex];
-            
-            if (searchValue.length >= 3 || searchValue.length === 0) {
-                $('#data-table_processing').show();
-            }
-            
-            database.collection('media').orderBy('name').get().then(async function(querySnapshot) {
-                if (querySnapshot.empty) {
-                    $('.media_count').text(0);
-                    $('#data-table_processing').hide();
-                    callback({
-                        draw: data.draw,
-                        recordsTotal: 0,
-                        recordsFiltered: 0,
-                        data: []
-                    });
-                    return;
-                }
-                
-                let records = [];
-                let filteredRecords = [];
-                
-                querySnapshot.forEach(function(doc) {
-                    var d = doc.data();
-                    d.id = doc.id;
-                    
-                    if (searchValue) {
-                        if (
-                            (d.name && d.name.toString().toLowerCase().includes(searchValue)) ||
-                            (d.slug && d.slug.toString().toLowerCase().includes(searchValue))
-                        ) {
-                            filteredRecords.push(d);
-                        }
-                    } else {
-                        filteredRecords.push(d);
-                    }
-                });
-                
-                filteredRecords.sort((a, b) => {
-                    let aValue = a[orderByField] ? a[orderByField].toString().toLowerCase() : '';
-                    let bValue = b[orderByField] ? b[orderByField].toString().toLowerCase() : '';
-                    
-                    if (orderDirection === 'asc') {
-                        return (aValue > bValue) ? 1 : -1;
-                    } else {
-                        return (aValue < bValue) ? 1 : -1;
-                    }
-                });
-                
-                const totalRecords = filteredRecords.length;
-                $('.media_count').text(totalRecords);
-                
-                const paginatedRecords = filteredRecords.slice(start, start + length);
-                
-                await Promise.all(paginatedRecords.map(async (mediaData) => {
-                    var getData = await buildHTML(mediaData);
-                    records.push(getData);
-                }));
-                
-                $('#data-table_processing').hide();
-                callback({
-                    draw: data.draw,
-                    recordsTotal: totalRecords,
-                    recordsFiltered: totalRecords,
-                    data: records
-                });
-            });
+        ajax: function(data, callback){
+            const params = { start: data.start, length: data.length, draw: data.draw, search: data.search.value };
+            $.get('{{ route('media.data') }}', params, function(json){
+                $('.media_count').text(json.recordsTotal || 0);
+                callback(json);
+            }).fail(function(xhr){ alert('Failed to load ('+xhr.status+'): '+xhr.statusText); })
+              .always(function(){ $('#data-table_processing').hide(); });
         },
         order: [1, 'asc'],
         columnDefs: [
@@ -351,148 +278,37 @@ $(document).ready(function () {
         $('#select-all').prop('checked', $('.is_open:checked').length === $('.is_open').length);
     });
 
-    // Expand/collapse row
-    $('#mediaTable tbody').on('click', '.expand-row', function (e) {
-        e.preventDefault();
-        var tr = $(this).closest('tr');
-        var row = table.row(tr);
-        var id = $(this).data('id');
-        var icon = $(this).find('i');
-        
-        // Get the media data for this row
-        database.collection('media').doc(id).get().then(function(doc) {
-            if (doc.exists) {
-                var mediaData = doc.data();
-                if (row.child.isShown()) {
-                    row.child.hide();
-                    icon.removeClass('fa-minus text-danger').addClass('fa-plus text-success');
-                    $(this).css('background-color', '#28a745');
-                } else {
-                    row.child(formatExpandRow(mediaData)).show();
-                    icon.removeClass('fa-plus text-success').addClass('fa-minus text-danger');
-                    $(this).css('background-color', '#dc3545');
-                }
-            }
-        });
-    });
+    // Remove expand since server data does not include it
 
     // Single delete
-    $('#mediaTable tbody').on('click', '.delete-btn', async function () {
-        var id = $(this).attr('id');
+    $('#mediaTable tbody').on('click', '.delete-btn', function () {
+        var id = $(this).data('id');
         var mediaName = $(this).closest('tr').find('a').text().trim() || 'Unknown';
-        
-        if (confirm('Are you sure you want to delete "' + mediaName + '"?')) {
-            jQuery('#data-table_processing').show();
-            
-            try {
-                // Get media data for logging and image cleanup
-                var doc = await database.collection('media').doc(id).get();
-                var mediaData = doc.exists ? doc.data() : null;
-                
-                if (mediaData && mediaData.image_name) {
-                    // Delete image from storage
-                    try {
-                        var imageRef = firebase.storage().ref('media').child(mediaData.image_name);
-                        await imageRef.delete();
-                    } catch (deleteError) {
-                        console.warn('Could not delete image from storage:', deleteError);
-                    }
-                }
-                
-                // Delete from Firestore
-                await database.collection('media').doc(id).delete();
-                
-                // Log activity
-                await logActivity('media', 'deleted', 'Deleted media: ' + (mediaData ? mediaData.name : mediaName));
-                
-                // Remove from selected set
-                selectedMedia.delete(id);
-                
-                // Reload table
-                table.ajax.reload();
-                
-            } catch (error) {
-                console.error('Error deleting media:', error);
-                alert('Error deleting media: ' + error.message);
-            } finally {
-                jQuery('#data-table_processing').hide();
-            }
-        }
+        if (!confirm('Are you sure you want to delete "' + mediaName + '"?')) return;
+        jQuery('#data-table_processing').show();
+        $.post({ url: '{{ url('media') }}' + '/' + id + '/delete', headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' } })
+            .done(function(){ table.ajax.reload(); })
+            .fail(function(xhr){ alert('Error deleting media: ' + xhr.statusText); })
+            .always(function(){ jQuery('#data-table_processing').hide(); });
     });
 
     // Bulk delete
     $("#deleteAll").click(async function () {
         var selectedCount = $('#mediaTable .is_open:checked').length;
-        
+
         if (selectedCount === 0) {
             alert("{{trans('lang.selected_delete_alert')}}");
             return;
         }
-        
-        if (confirm("{{trans('lang.selected_delete_alert')}}")) {
-            jQuery('#data-table_processing').show();
-            
-            try {
-                var selectedIds = [];
-                var selectedNames = [];
-                var deletePromises = [];
-                
-                // Collect all selected items
-                $('#mediaTable .is_open:checked').each(function () {
-                    selectedIds.push($(this).attr('dataId'));
-                });
-                
-                // Process each selected item
-                for (var i = 0; i < selectedIds.length; i++) {
-                    var id = selectedIds[i];
-                    var deletePromise = (async function(id) {
-                        try {
-                            // Get media data
-                            var doc = await database.collection('media').doc(id).get();
-                            if (doc.exists) {
-                                var mediaData = doc.data();
-                                selectedNames.push(mediaData.name);
-                                
-                                // Delete image from storage if exists
-                                if (mediaData.image_name) {
-                                    try {
-                                        var imageRef = firebase.storage().ref('media').child(mediaData.image_name);
-                                        await imageRef.delete();
-                                    } catch (deleteError) {
-                                        console.warn('Could not delete image from storage:', deleteError);
-                                    }
-                                }
-                                
-                                // Delete from Firestore
-                                await database.collection('media').doc(id).delete();
-                                selectedMedia.delete(id);
-                            }
-                        } catch (error) {
-                            console.error('Error deleting media ' + id + ':', error);
-                        }
-                    })(id);
-                    
-                    deletePromises.push(deletePromise);
-                }
-                
-                // Wait for all deletions to complete
-                await Promise.all(deletePromises);
-                
-                // Log bulk delete activity
-                if (selectedNames.length > 0) {
-                    await logActivity('media', 'deleted', 'Bulk deleted media: ' + selectedNames.join(', '));
-                }
-                
-                // Reload table
-                table.ajax.reload();
-                
-            } catch (error) {
-                console.error('Error in bulk delete:', error);
-                alert('Error deleting selected media: ' + error.message);
-            } finally {
-                jQuery('#data-table_processing').hide();
-            }
-        }
+
+        if (!confirm("{{trans('lang.selected_delete_alert')}}")) return;
+        jQuery('#data-table_processing').show();
+        var ids = [];
+        $('#mediaTable .is_open:checked').each(function () { ids.push($(this).attr('dataId')); });
+        $.post({ url: '{{ route('media.bulkDelete') }}', data: { ids: ids }, headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' } })
+            .done(function(){ table.ajax.reload(); })
+            .fail(function(xhr){ alert('Error deleting selected media: ' + xhr.statusText); })
+            .always(function(){ jQuery('#data-table_processing').hide(); });
     });
 
     // Search functionality with debounce
@@ -507,7 +323,7 @@ $(document).ready(function () {
         }
     }, 300));
 
-    // Copy image path to clipboard
+    // Copy image path to clipboard (works if we render copy icon)
     $('#mediaTable tbody').on('click', '.copy-image-path', function() {
         var imagePath = $(this).data('image-path');
         if (imagePath) {
@@ -517,28 +333,28 @@ $(document).ready(function () {
             document.body.appendChild(tempTextArea);
             tempTextArea.select();
             tempTextArea.setSelectionRange(0, 99999); // For mobile devices
-            
+
             try {
                 // Copy the text to clipboard
                 document.execCommand('copy');
-                
+
                 // Show success feedback
                 var $btn = $(this);
                 var originalIcon = $btn.find('i').attr('class');
                 $btn.find('i').removeClass().addClass('mdi mdi-check text-success');
                 $btn.attr('title', 'Copied!');
-                
+
                 // Reset after 2 seconds
                 setTimeout(function() {
                     $btn.find('i').removeClass().addClass(originalIcon);
                     $btn.attr('title', 'Copy Image Path');
                 }, 2000);
-                
+
             } catch (err) {
                 console.error('Failed to copy: ', err);
                 alert('Failed to copy image path to clipboard');
             }
-            
+
             // Remove the temporary element
             document.body.removeChild(tempTextArea);
         }
