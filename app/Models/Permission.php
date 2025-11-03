@@ -2,23 +2,25 @@
 
 namespace App\Models;
 
-use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Notifications\Notifiable;
-use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Database\Eloquent\Model;
 
-class Permission extends Authenticatable
+class Permission extends Model
 {
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasFactory;
+
+    /**
+     * The table associated with the model.
+     *
+     * @var string
+     */
+    protected $table = 'permissions';
 
     /**
      * The attributes that are mass assignable.
      *
      * @var array<int, string>
      */
-    protected $table = 'permissions';
-
     protected $fillable = [
         'role_id',
         'permission',
@@ -26,14 +28,22 @@ class Permission extends Authenticatable
     ];
 
     /**
-     * The attributes that should be hidden for serialization.
+     * Indicates if the model should be timestamped.
      *
-     * @var array<int, string>
+     * @var bool
      */
+    public $timestamps = true;
 
     /**
      * The attributes that should be cast.
      *
      * @var array<string, string>
      */
+    protected $casts = [
+        'role_id' => 'integer',
+        'permission' => 'string',
+        'routes' => 'string',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime'
+    ];
 }

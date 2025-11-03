@@ -175,9 +175,6 @@
 </style>
 @section('scripts')
     <script>
-        var database = firebase.firestore();
-        var id = database.collection("tmp").doc().id;
-        var ref = database.collection('zone');
         $(document).ready(function () {
             setTimeout(function(){
                 initMap();
@@ -207,19 +204,38 @@
                         var area = [];
                         for (let i = 0; i < coordinates.length; i++) {
                             var item = coordinates[i];
-                            area.push(new firebase.firestore.GeoPoint(item.lat,item.lng));
+                            area.push({latitude: item.lat, longitude: item.lng});
                         }
                         jQuery("#overlay").show();
-                        database.collection('zone').doc(id).set({
-                            'id': id,
-                            'name': name,
-                            'latitude': latitude,
-                            'longitude': longitude,
-                            'area': area,
-                            'publish': publish,
-                        }).then(function (result) {
-                            jQuery("#overlay").hide();
-                            window.location.href = '{{ route("zone")}}';
+                        
+                        // Save to SQL database via AJAX
+                        $.ajax({
+                            url: "{{ route('zone.store') }}",
+                            type: 'POST',
+                            headers: {
+                                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                            },
+                            data: {
+                                name: name,
+                                latitude: latitude,
+                                longitude: longitude,
+                                area: JSON.stringify(area),
+                                coordinates: coordinates_object,
+                                publish: publish
+                            },
+                            success: function(response) {
+                                jQuery("#overlay").hide();
+                                if (response.success) {
+                                    window.location.href = '{{ route("zone")}}';
+                                } else {
+                                    alert(response.message || 'Error creating zone');
+                                }
+                            },
+                            error: function(xhr) {
+                                jQuery("#overlay").hide();
+                                console.error('Error creating zone:', xhr);
+                                alert('Error creating zone');
+                            }
                         });
                     }
                     else
@@ -270,8 +286,8 @@
                                 polygon.forEach(function(point, index) {
                                     // Check if the point is valid (has lat and lng properties)
                                     if (point && typeof point.lat === 'number' && typeof point.lng === 'number') {
-                                        // Correctly create GeoPoint for each valid point and add to the area array
-                                        area.push(new firebase.firestore.GeoPoint(point.lat, point.lng));
+                                        // Add to area array as simple object
+                                        area.push({latitude: point.lat, longitude: point.lng});
                                     } else {
                                         // Log the error if a point is invalid or undefined
                                         console.error("Invalid lat/lng at polygon index " + i + ", point index " + index, point);
@@ -284,8 +300,8 @@
                             } else {
                                 // If the polygon is not an array, handle it as a single point object
                                 if (polygon && typeof polygon.lat === 'number' && typeof polygon.lon === 'number') {
-                                    // Correctly create GeoPoint for a single valid point and add to the area array
-                                    area.push(new firebase.firestore.GeoPoint(polygon.lat, polygon.lon));
+                                    // Add to area array as simple object
+                                    area.push({latitude: polygon.lat, longitude: polygon.lon});
                                 } else {
                                     console.error("Invalid single point object at polygon index " + i, polygon);
                                     $(".error_top").show();
@@ -297,16 +313,34 @@
                         }
                         jQuery("#overlay").show();
                         if (latitude && longitude && area.length > 0) {
-                            database.collection('zone').doc(id).set({
-                                'id': id,
-                                'name': name,
-                                'latitude': latitude,
-                                'longitude': longitude,
-                                'area': area,
-                                'publish': publish,
-                            }).then(function (result) {
-                                jQuery("#overlay").hide();
-                                window.location.href = '{{ route("zone")}}';
+                            // Save to SQL database via AJAX
+                            $.ajax({
+                                url: "{{ route('zone.store') }}",
+                                type: 'POST',
+                                headers: {
+                                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                                },
+                                data: {
+                                    name: name,
+                                    latitude: latitude,
+                                    longitude: longitude,
+                                    area: JSON.stringify(area),
+                                    coordinates: coordinates_object,
+                                    publish: publish
+                                },
+                                success: function(response) {
+                                    jQuery("#overlay").hide();
+                                    if (response.success) {
+                                        window.location.href = '{{ route("zone")}}';
+                                    } else {
+                                        alert(response.message || 'Error creating zone');
+                                    }
+                                },
+                                error: function(xhr) {
+                                    jQuery("#overlay").hide();
+                                    console.error('Error creating zone:', xhr);
+                                    alert('Error creating zone');
+                                }
                             });
                         }
                         else

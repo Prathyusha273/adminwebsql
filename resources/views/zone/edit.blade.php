@@ -178,10 +178,10 @@
 <script>
     var id = "<?php echo $id;?>";
     var database = firebase.firestore();
-    var ref = database.collection('zone').where("id", "==", id);
     var default_lat = getCookie('default_latitude');
     var default_lng = getCookie('default_longitude');
     var geopoints = '';
+    var zoneAreaData = [];
     let drawnItems = new L.FeatureGroup();
     let deleteButton ,dragMap;
     let selectedPolygon = null;
@@ -216,45 +216,60 @@
         document.getElementById("delete-all-button").onclick = deletearea;
     });
     $(document).ready(function () {
-        ref.get().then(async function (snapshots) {
-            if (snapshots.docs) {
-                var zone = snapshots.docs[0].data();
-                $("#name").val(zone.name);
-                $("#coordinates").val(zone.area);
-                let coordinates = zone.area.map(item => [item.c_, item.h_]);
-                document.getElementById('area').value = coordinates;
-                var AREA = document.getElementById('area').value;
-                const values = AREA.split(',');
-                const latLonArray = [];
-                for (let i = 0; i < values.length; i += 2) {
-                    const lat = parseFloat(values[i + 1]); // Latitude is the second value in the pair
-                    const lon = parseFloat(values[i]);    // Longitude is the first value in the pair
-                    latLonArray.push([lat, lon]);          // Add [lat, lon] pair to the array
-                }
-                if(mapType == "ONLINE"){
-                    latLonArray.push(latLonArray[0]);
-                    document.getElementById('coordinates').value =latLonArray;
-                }
-                else
-                {
-                    // latLonArray.push(latLonArray);
-                    // Convert to desired format
-                    var coordinatesUpdated = latLonArray.map(function(coord) {
-                        return {
-                            lat: coord[0],  // latitude from the first element of the array
-                            lon: coord[1]   // longitude from the second element of the array
-                        };
-                    });
-                    document.getElementById('coordinates').value =JSON.stringify(coordinatesUpdated);
-                }
-                if (zone.publish) {
-                    $("#publish").prop('checked', true);
-                }
-                default_lat = zone.latitude;
-                default_lng = zone.longitude;
-                geopoints = zone.area;
-            }
-        });
+        // Load zone data from server-side variable
+        @if(isset($zone))
+        var zone = {!! json_encode($zone) !!};
+        
+        $("#name").val(zone.name);
+        
+        // Parse area JSON from database
+        var areaData = typeof zone.area === 'string' ? JSON.parse(zone.area) : zone.area;
+        zoneAreaData = areaData;
+        
+        // Convert area data to coordinates format
+        let coordinates = areaData.map(item => [item.longitude || item.lng, item.latitude || item.lat]);
+        document.getElementById('area').value = coordinates;
+        
+        var AREA = document.getElementById('area').value;
+        const values = AREA.split(',');
+        const latLonArray = [];
+        for (let i = 0; i < values.length; i += 2) {
+            const lon = parseFloat(values[i]);
+            const lat = parseFloat(values[i + 1]);
+            latLonArray.push([lat, lon]);
+        }
+        
+        if(mapType == "ONLINE"){
+            latLonArray.push(latLonArray[0]);
+            document.getElementById('coordinates').value = latLonArray;
+        }
+        else
+        {
+            var coordinatesUpdated = latLonArray.map(function(coord) {
+                return {
+                    lat: coord[0],
+                    lon: coord[1]
+                };
+            });
+            document.getElementById('coordinates').value = JSON.stringify(coordinatesUpdated);
+        }
+        
+        if (zone.publish) {
+            $("#publish").prop('checked', true);
+        }
+        default_lat = zone.latitude;
+        default_lng = zone.longitude;
+        
+        // Convert area data to geopoints format for map
+        geopoints = areaData.map(item => ({
+            latitude: item.latitude || item.lat,
+            longitude: item.longitude || item.lng
+        }));
+        @else
+        console.error('Zone data not available');
+        alert('Error: Zone data not loaded');
+        @endif
+        
         setTimeout(function(){
             initMap();
         },2500);
@@ -277,10 +292,10 @@
                 if(mapType == "ONLINE"){
                     var coordinates_parse = coordinates_object;
                     if (coordinates_parse.startsWith('[[')) {
-                        coordinates_parse = coordinates_parse.slice(1);  // Remove the first '['
+                        coordinates_parse = coordinates_parse.slice(1);
                     }
                     if (coordinates_parse.endsWith(']]')) {
-                        coordinates_parse = coordinates_parse.slice(0, -1);  // Remove the last ']'
+                        coordinates_parse = coordinates_parse.slice(0, -1);
                     }
                     var coordinates = JSON.parse(coordinates_parse);
                     if (coordinates && coordinates.length > 0) {
@@ -290,23 +305,42 @@
                             for (let i = 0; i < coordinates.length; i++) {
                                 var item = coordinates[i];
                                 if (item && item.lat !== undefined && item.lng !== undefined) {
-                                    area.push(new firebase.firestore.GeoPoint(item.lat, item.lng));
+                                    area.push({latitude: item.lat, longitude: item.lng});
                                 } else {
                                     console.error("Invalid coordinate at index " + i, item);
                                 }
                             }
                             if (latitude && longitude) {
                                 jQuery("#overlay").show();
-                                database.collection('zone').doc(id).set({
-                                    'id': id,
-                                    'name': name,
-                                    'latitude': latitude,
-                                    'longitude': longitude,
-                                    'area': area,
-                                    'publish': publish,
-                                }).then(function (result) {
-                                    jQuery("#overlay").hide();
-                                    window.location.href = '{{ route("zone")}}';
+                                
+                                // Update zone in SQL database
+                                $.ajax({
+                                    url: "{{ url('/zone') }}/" + id,
+                                    type: 'PUT',
+                                    headers: {
+                                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                                    },
+                                    data: {
+                                        name: name,
+                                        latitude: latitude,
+                                        longitude: longitude,
+                                        area: JSON.stringify(area),
+                                        coordinates: coordinates_object,
+                                        publish: publish
+                                    },
+                                    success: function(response) {
+                                        jQuery("#overlay").hide();
+                                        if (response.success) {
+                                            window.location.href = '{{ route("zone")}}';
+                                        } else {
+                                            alert(response.message || 'Error updating zone');
+                                        }
+                                    },
+                                    error: function(xhr) {
+                                        jQuery("#overlay").hide();
+                                        console.error('Error updating zone:', xhr);
+                                        alert('Error updating zone');
+                                    }
                                 });
                             } 
                             else 
@@ -324,10 +358,10 @@
                     try 
                     {
                         if (coordinates_object.startsWith('[[')) {
-                            coordinates_object = coordinates_object.slice(1);  // Remove the first '['
+                            coordinates_object = coordinates_object.slice(1);
                         }
                         if (coordinates_object.endsWith(']]')) {
-                            coordinates_object = coordinates_object.slice(0, -1);  // Remove the last ']'
+                            coordinates_object = coordinates_object.slice(0, -1);
                         }
                         if (coordinates_object.trim().startsWith('[') && coordinates_object.trim().endsWith(']')) {
                                 var coordinates_parse;
@@ -340,7 +374,7 @@
                                     $(".error_top").html("");
                                     $(".error_top").append("<p>{{trans('lang.zone_coordinates_error')}}</p>");
                                     window.scrollTo(0, 0);
-                                    return; // Exit early if JSON parsing fails
+                                    return;
                                 }
                             if (!Array.isArray(coordinates_parse)) {
                                 console.error("Coordinates object is not an array:", coordinates_parse);
@@ -353,24 +387,23 @@
                                 coordinates_parse.forEach((item, index) =>  {
                                     let updatedItem = '';
                                     if (item.lng !== undefined) {
-                                        // Create a new object with 'lat' and 'lon'
                                         updatedItem = {
-                                            lat: item.lat,  // Keep lat as is
-                                            lon: item.lng   // Replace lng with lon
+                                            lat: item.lat,
+                                            lon: item.lng
                                         };
                                     }
                                     else
                                     {
                                         updatedItem = {
-                                            lat: item.lat,  // Keep lat as is
-                                            lon: item.lon   // Replace lng with lon
+                                            lat: item.lat,
+                                            lon: item.lon
                                         };
                                     }
                                     if (item && item.lat !== undefined && (item.lon !== undefined || item.lng !== undefined)) {
                                             const lat = updatedItem.lat;
                                             const lng = updatedItem.lon;
                                             if (typeof lat === 'number'  && !isNaN(lat) && !isNaN(lng) && typeof lng === 'number') {
-                                                area.push(new firebase.firestore.GeoPoint(lat, lng));
+                                                area.push({latitude: lat, longitude: lng});
                                                 if (!latitude && !longitude) { 
                                                     latitude = lat;
                                                     longitude = lng;
@@ -407,16 +440,35 @@
                         window.scrollTo(0, 0);
                     }
                     jQuery("#overlay").show();
-                    database.collection('zone').doc(id).set({
-                        'id': id,
-                        'name': name,
-                        'latitude': latitude,
-                        'longitude': longitude,
-                        'area': area,
-                        'publish': publish,
-                    }).then(function (result) {
-                        jQuery("#overlay").hide();
-                        window.location.href = '{{ route("zone")}}';
+                    
+                    // Update zone in SQL database
+                    $.ajax({
+                        url: "{{ url('/zone') }}/" + id,
+                        type: 'PUT',
+                        headers: {
+                            'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                        },
+                        data: {
+                            name: name,
+                            latitude: latitude,
+                            longitude: longitude,
+                            area: JSON.stringify(area),
+                            coordinates: coordinates_object,
+                            publish: publish
+                        },
+                        success: function(response) {
+                            jQuery("#overlay").hide();
+                            if (response.success) {
+                                window.location.href = '{{ route("zone")}}';
+                            } else {
+                                alert(response.message || 'Error updating zone');
+                            }
+                        },
+                        error: function(xhr) {
+                            jQuery("#overlay").hide();
+                            console.error('Error updating zone:', xhr);
+                            alert('Error updating zone');
+                        }
                     });
                 } 
             }

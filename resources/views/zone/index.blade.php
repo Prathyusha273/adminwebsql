@@ -79,140 +79,213 @@
 @endsection
 @section('scripts')
     <script type="text/javascript">
-        var database = firebase.firestore();
-        var offest = 1;
-        var pagesize = 10;
-        var end = null;
-        var endarray = [];
-        var start = null;
-        var user_number = [];
-        var ref = database.collection('zone');
-        var append_list = '';
-        var placeholderImage = '';
         var user_permissions = '<?php echo @session("user_permissions")?>';
         user_permissions = Object.values(JSON.parse(user_permissions));
         var checkDeletePermission = false;
         if ($.inArray('zone.delete', user_permissions) >= 0) {
             checkDeletePermission = true;
         }
+
         $(document).ready(function () {
-            var inx = parseInt(offest) * parseInt(pagesize);
             jQuery("#data-table_processing").show();
-            append_list = document.getElementById('append_list1');
-            append_list.innerHTML = '';
-            ref.get().then(async function (snapshots) {
-                html = '';
-                if (snapshots.docs.length > 0) {
-                    $('.zone_count').text(snapshots.docs.length);
-                    html = await buildHTML(snapshots);
-                }
-                if (html != '') {
-                    append_list.innerHTML = html;
-                    start = snapshots.docs[snapshots.docs.length - 1];
-                    endarray.push(snapshots.docs[0]);
-                    if (snapshots.docs.length < pagesize) {
-                        jQuery("#data-table_paginate").hide();
+            
+            // Fetch zones data from SQL database
+            $.ajax({
+                url: "{{ route('zone.data') }}",
+                type: 'GET',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                success: function(response) {
+                    if (response.success && response.data) {
+                        var zones = response.data;
+                        $('.zone_count').text(zones.length);
+                        
+                        var html = '';
+                        zones.forEach(function(zone) {
+                            html += buildHTML(zone);
+                        });
+                        
+                        $('#append_list1').html(html);
+                        
+                        // Initialize DataTable
+                        if (checkDeletePermission) {
+                            $('#example24').DataTable({
+                                order: [[1, 'asc']],
+                                columnDefs: [
+                                    {orderable: false, targets: [0, 2, 3]},
+                                ],
+                                "language": {
+                                    "zeroRecords": "{{trans('lang.no_record_found')}}",
+                                    "emptyTable": "{{trans('lang.no_record_found')}}"
+                                },
+                                responsive: true
+                            });
+                        } else {
+                            $('#example24').DataTable({
+                                order: [[0, 'asc']],
+                                columnDefs: [
+                                    {orderable: false, targets: [1, 2]},
+                                ],
+                                "language": {
+                                    "zeroRecords": "{{trans('lang.no_record_found')}}",
+                                    "emptyTable": "{{trans('lang.no_record_found')}}"
+                                },
+                                responsive: true
+                            });
+                        }
                     }
+                    jQuery("#data-table_processing").hide();
+                },
+                error: function(xhr) {
+                    console.error('Error loading zones:', xhr);
+                    jQuery("#data-table_processing").hide();
+                    alert('Error loading zones data');
                 }
-                if (checkDeletePermission) {
-                    $('#example24').DataTable({
-                        order: [[1, 'asc']],
-                        columnDefs: [
-                            {orderable: false, targets: [0, 2, 3]},
-                        ],
-                        "language": {
-                            "zeroRecords": "{{trans('lang.no_record_found')}}",
-                            "emptyTable": "{{trans('lang.no_record_found')}}"
-                        },
-                        responsive: true
-                    });
-                } else {
-                    $('#example24').DataTable({
-                        order: [[0, 'asc']],
-                        columnDefs: [
-                            {orderable: false, targets: [1, 2]},
-                        ],
-                        "language": {
-                            "zeroRecords": "{{trans('lang.no_record_found')}}",
-                            "emptyTable": "{{trans('lang.no_record_found')}}"
-                        },
-                        responsive: true
-                    });
-                }
-                jQuery("#data-table_processing").hide();
             });
         });
-        async function buildHTML(snapshots) {
+
+        function buildHTML(zone) {
             var html = '';
-            await Promise.all(snapshots.docs.map(async (listval) => {
-                var val = listval.data();
-                var getData = await getListData(val);
-                html += getData;
-            }));
-            return html;
-        }
-        async function getListData(val) {
-            var html = '';
-            html = html + '<tr>';
-            var id = val.id;
+            html += '<tr>';
             var route1 = '{{route("zone.edit",":id")}}';
-            route1 = route1.replace(':id', id);
+            route1 = route1.replace(':id', zone.id);
+            
             if (checkDeletePermission) {
-                html = html + '<td class="delete-all"><input type="checkbox" id="is_open_' + id + '" class="is_open" dataId="' + id + '"><label class="col-3 control-label"\n' +
-                    'for="is_open_' + id + '" ></label></td>';
+                html += '<td class="delete-all"><input type="checkbox" id="is_open_' + zone.id + '" class="is_open" dataId="' + zone.id + '"><label class="col-3 control-label" for="is_open_' + zone.id + '" ></label></td>';
             }
-            html = html + '<td><a href="' + route1 + '">' + val.name + '</a></td>';
-            if (val.publish) {
-                html = html + '<td><label class="switch"><input type="checkbox" checked id="' + val.id + '" name="isSwitch"><span class="slider round"></span></label></td>';
+            
+            html += '<td><a href="' + route1 + '">' + zone.name + '</a></td>';
+            
+            if (zone.publish) {
+                html += '<td><label class="switch"><input type="checkbox" checked id="' + zone.id + '" name="isSwitch"><span class="slider round"></span></label></td>';
             } else {
-                html = html + '<td><label class="switch"><input type="checkbox" id="' + val.id + '" name="isSwitch"><span class="slider round"></span></label></td>';
+                html += '<td><label class="switch"><input type="checkbox" id="' + zone.id + '" name="isSwitch"><span class="slider round"></span></label></td>';
             }
-            html = html + '<td class="action-btn"><a href="' + route1 + '"><i class="mdi mdi-lead-pencil" title="Edit"></i></a>';
+            
+            html += '<td class="action-btn"><a href="' + route1 + '"><i class="mdi mdi-lead-pencil" title="Edit"></i></a>';
+            
             if (checkDeletePermission) {
-                html = html + '<a id="' + val.id + '" name="zone-delete" class="delete-btn" href="javascript:void(0)"><i class="mdi mdi-delete"></i></a>';
+                html += '<a id="' + zone.id + '" name="zone-delete" class="delete-btn" href="javascript:void(0)"><i class="mdi mdi-delete"></i></a>';
             }
-            html = html + '</td>';
-            html = html + '</tr>';
+            
+            html += '</td>';
+            html += '</tr>';
             return html;
         }
+
         $("#is_active").click(function () {
             $("#example24 .is_open").prop('checked', $(this).prop('checked'));
         });
+
         $("#deleteAll").click(function () {
             if ($('#example24 .is_open:checked').length) {
                 if (confirm("{{trans('lang.selected_delete_alert')}}")) {
                     jQuery("#overlay").show();
+                    
+                    var ids = [];
                     $('#example24 .is_open:checked').each(function () {
-                        var dataId = $(this).attr('dataId');
-                        database.collection('zone').doc(dataId).delete().then(function () {
-                            window.location.reload();
-                        });
+                        ids.push($(this).attr('dataId'));
+                    });
+                    
+                    $.ajax({
+                        url: "{{ route('zone.delete-multiple') }}",
+                        type: 'POST',
+                        headers: {
+                            'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                        },
+                        data: {
+                            ids: ids
+                        },
+                        success: function(response) {
+                            jQuery("#overlay").hide();
+                            if (response.success) {
+                                window.location.reload();
+                            } else {
+                                alert(response.message || 'Error deleting zones');
+                            }
+                        },
+                        error: function(xhr) {
+                            jQuery("#overlay").hide();
+                            alert('Error deleting zones');
+                        }
                     });
                 }
             } else {
                 alert("{{trans('lang.select_delete_alert')}}");
             }
         });
-        $(document).on("click", "input[name='isSwitch']", function (e) {
+
+        $(document).on("change", "input[name='isSwitch']", function (e) {
             var ischeck = $(this).is(':checked');
             var id = this.id;
-            if (ischeck) {
-                database.collection('zone').doc(id).update({
-                    'publish': true
-                }).then(function (result) {
-                });
-            } else {
-                database.collection('zone').doc(id).update({
-                    'publish': false
-                }).then(function (result) {
-                });
-            }
+            var $checkbox = $(this);
+            var originalState = !ischeck;
+            
+            // Disable checkbox during request
+            $checkbox.prop('disabled', true);
+            
+            // Build URL using route helper
+            var url = "{{ route('zone.toggle-status', ':id') }}";
+            url = url.replace(':id', id);
+            
+            $.ajax({
+                url: url,
+                type: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                data: {
+                    publish: ischeck
+                },
+                success: function(response) {
+                    $checkbox.prop('disabled', false);
+                    if (!response.success) {
+                        // Revert checkbox state on error
+                        $checkbox.prop('checked', originalState);
+                        alert(response.message || 'Error updating zone status');
+                    }
+                },
+                error: function(xhr) {
+                    $checkbox.prop('disabled', false);
+                    // Revert checkbox state on error
+                    $checkbox.prop('checked', originalState);
+                    console.error('Error toggling zone status:', xhr);
+                    if (xhr.status === 405) {
+                        alert('Method not allowed. Please refresh the page and try again.');
+                    } else {
+                        alert('Error updating zone status');
+                    }
+                }
+            });
         });
+
         $(document).on("click", "a[name='zone-delete']", function (e) {
+            if (!confirm("{{trans('lang.delete_alert')}}")) {
+                return;
+            }
+            
             var id = this.id;
             jQuery("#overlay").show();
-            database.collection('zone').doc(id).delete().then(function (result) {
-                window.location.reload();
+            
+            $.ajax({
+                url: "{{ url('/zone') }}/" + id,
+                type: 'DELETE',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                success: function(response) {
+                    jQuery("#overlay").hide();
+                    if (response.success) {
+                        window.location.reload();
+                    } else {
+                        alert(response.message || 'Error deleting zone');
+                    }
+                },
+                error: function(xhr) {
+                    jQuery("#overlay").hide();
+                    alert('Error deleting zone');
+                }
             });
         });
     </script>

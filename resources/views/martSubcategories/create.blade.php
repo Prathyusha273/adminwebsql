@@ -114,193 +114,134 @@
 @endsection
 @section('scripts')
 <script>
-    var database = firebase.firestore();
     var categoryId = "{{ $categoryId }}";
-    var ref = database.collection('mart_subcategories');
     var photo = "";
     var fileName='';
-    var id_subcategory = "<?php echo uniqid();?>";
-    var placeholderImage = '';
-    var placeholder = database.collection('settings').doc('placeHolderImage');
-    var ref_review_attributes = database.collection('review_attributes');
-    placeholder.get().then(async function (snapshotsimage) {
-        var placeholderImageData = snapshotsimage.data();
-        placeholderImage = placeholderImageData.image;
-    })
+    var storageRef = firebase.storage().ref('images');
+
     $(document).ready(function () {
-        console.log('✅ Document ready - starting sub-category create page initialization');
+        jQuery("#data-table_processing").show();
         
-        // Show loading if element exists
-        if ($("#data-table_processing").length) {
-            $("#data-table_processing").show();
-        }
-        
-        // Load parent category information
+        // Load parent category info
         loadParentCategoryInfo();
         
-        // Load review attributes
-        loadReviewAttributes();
-        
-        // Hide loading after everything is loaded
-        setTimeout(function() {
-            if ($("#data-table_processing").length) {
-                $("#data-table_processing").hide();
+        // Load review attributes from SQL database
+        $.ajax({
+            url: '/api/review-attributes',
+            type: 'GET',
+            success: function(reviewAttributes) {
+                var ra_html = '';
+                reviewAttributes.forEach(function(data) {
+                    ra_html += '<div class="form-check width-100">';
+                    ra_html += '<input type="checkbox" id="review_attribute_' + data.id + '" value="' + data.id + '">';
+                    ra_html += '<label class="col-3 control-label" for="review_attribute_' + data.id + '">' + data.title + '</label>';
+                    ra_html += '</div>';
+                });
+                $('#review_attributes').html(ra_html);
+                jQuery("#data-table_processing").hide();
+            },
+            error: function(xhr, status, error) {
+                console.error('Error loading review attributes:', error);
+                jQuery("#data-table_processing").hide();
             }
-            console.log('✅ Page initialization completed');
-        }, 1000);
-        
+        });
+
         $(".save-setting-btn").click(async function () {
-            console.log('✅ Save button clicked');
-            var title = $(".subcategory-name").val().trim();
-            var description = $(".subcategory_description").val().trim();
+            var title = $(".subcategory-name").val();
+            var description = $(".subcategory_description").val();
+            var subcategory_order = parseInt($("#subcategory_order").val()) || 1;
             var item_publish = $("#item_publish").is(":checked");
             var show_in_homepage = $("#show_in_homepage").is(":checked");
+            
             var review_attributes = [];
             $('#review_attributes input').each(function () {
                 if ($(this).is(':checked')) {
                     review_attributes.push($(this).val());
                 }
             });
-            console.log('Form data:', { title, description, item_publish, show_in_homepage, review_attributes });
-            
+
             if (title == '') {
                 $(".error_top").show();
                 $(".error_top").html("");
                 $(".error_top").append("<p>Please enter a sub-category name</p>");
                 window.scrollTo(0, 0);
-                return;
-            }
-            
-            if (title.length < 2) {
-                $(".error_top").show();
-                $(".error_top").html("");
-                $(".error_top").append("<p>Sub-category name must be at least 2 characters long</p>");
-                window.scrollTo(0, 0);
-                return;
-            }
-            
-            console.log('✅ Validation passed, starting save process');
-            if ($("#data-table_processing").length) {
-                $("#data-table_processing").show();
-            }
-            storeImageData().then(IMG => {
-                database.collection('mart_subcategories').doc(id_subcategory).set({
-                    'id': id_subcategory,
-                    'title': title,
-                    'description': description,
-                    'photo': IMG,
-                    'parent_category_id': categoryId,
-                    'parent_category_title': $('#parent_category_info').val(),
-                    'section': $('#section_info').val(),
-                    'section_order': 1,
-                    'category_order': 1,
-                    'subcategory_order': parseInt($('#subcategory_order').val()) || 1,
-                    'mart_id': '',
-                    'review_attributes': review_attributes,
-                    'publish': item_publish,
-                    'show_in_homepage': show_in_homepage,
-                    'migratedBy': 'migrate:mart-subcategories',
-                }).then(async function (result) {
-                    console.log('✅ Sub-category saved successfully, now logging activity...');
-                    try {
-                        if (typeof logActivity === 'function') {
-                            console.log('🔍 Calling logActivity for sub-category creation...');
-                            await logActivity('mart_subcategories', 'created', 'Created new sub-category: ' + title);
-                            console.log('✅ Activity logging completed successfully');
-                        } else {
-                            console.error('❌ logActivity function is not available');
+            } else {
+                jQuery("#data-table_processing").show();
+                
+                try {
+                    // Upload image to Firebase Storage if exists
+                    let IMG = '';
+                    if (photo && fileName) {
+                        IMG = await storeImageData();
+                    }
+
+                    // Save to SQL database via AJAX
+                    $.ajax({
+                        url: '{{ route("api.mart-subcategories.store") }}',
+                        type: 'POST',
+                        data: {
+                            _token: '{{ csrf_token() }}',
+                            title: title,
+                            description: description,
+                            photo: IMG,
+                            parent_category_id: categoryId,
+                            subcategory_order: subcategory_order,
+                            publish: item_publish ? 1 : 0,
+                            show_in_homepage: show_in_homepage ? 1 : 0,
+                            review_attributes: review_attributes
+                        },
+                        success: function(response) {
+                            jQuery("#data-table_processing").hide();
+                            window.location.href = '{{route("mart-subcategories.index", ["category_id" => $categoryId])}}';
+                        },
+                        error: function(xhr, status, error) {
+                            jQuery("#data-table_processing").hide();
+                            $(".error_top").show();
+                            $(".error_top").html("");
+                            var errorMessage = xhr.responseJSON && xhr.responseJSON.error 
+                                ? xhr.responseJSON.error 
+                                : 'Error saving sub-category';
+                            $(".error_top").append("<p>" + errorMessage + "</p>");
+                            window.scrollTo(0, 0);
                         }
-                    } catch (error) {
-                        console.error('❌ Error calling logActivity:', error);
-                    }
-                    // Update parent category sub-category count
-                    updateParentCategoryCount();
-                    if ($("#data-table_processing").length) {
-                        $("#data-table_processing").hide();
-                    }
-                    console.log('✅ Redirecting to sub-categories list');
-                    window.location.href = '{{ route("mart-subcategories.index", ["category_id" => $categoryId]) }}';
-                });
-            }).catch(function (error) {
-                if ($("#data-table_processing").length) {
-                    $("#data-table_processing").hide();
+                    });
+                } catch (error) {
+                    jQuery("#data-table_processing").hide();
+                    $(".error_top").show();
+                    $(".error_top").html("");
+                    $(".error_top").append("<p>" + error + "</p>");
+                    window.scrollTo(0, 0);
                 }
-                $(".error_top").show();
-                $(".error_top").html("");
-                $(".error_top").append("<p>Error saving sub-category: " + error.message + "</p>");
-                console.error("Error saving sub-category:", error);
-            })
+            }
         });
     });
 
-    // Load parent category information
     function loadParentCategoryInfo() {
-        console.log('🔍 Loading parent category info for ID:', categoryId);
-        database.collection('mart_categories').doc(categoryId).get().then(function(doc) {
-            if (doc.exists) {
-                var data = doc.data();
-                console.log('✅ Parent category data loaded:', data);
-                $('#parent_category_info').val(data.title);
-                $('#section_info').val(data.section || 'General');
-            } else {
-                console.error('❌ Parent category not found');
-                alert('Parent category not found. Please go back and try again.');
-                window.history.back();
+        $.ajax({
+            url: '/api/mart-categories/' + categoryId + '/info',
+            type: 'GET',
+            success: function(category) {
+                $('#parent_category_info').val(category.title);
+                $('#section_info').val(category.section || 'General');
+            },
+            error: function(xhr, status, error) {
+                console.error('Error loading parent category:', error);
             }
-        }).catch(function(error) {
-            console.error('❌ Error loading parent category:', error);
-            alert('Error loading parent category. Please try again.');
         });
     }
 
-    // Load review attributes
-    function loadReviewAttributes() {
-        ref_review_attributes.get().then(async function (snapshots) {
-            var ra_html = '';
-            snapshots.docs.forEach((listval) => {
-                var data = listval.data();
-                ra_html += '<div class="form-check width-100">';
-                ra_html += '<input type="checkbox" id="review_attribute_' + data.id + '" value="' + data.id + '">';
-                ra_html += '<label class="col-3 control-label" for="review_attribute_' + data.id + '">' + data.title + '</label>';
-                ra_html += '</div>';
-            });
-            $('#review_attributes').html(ra_html);
-        }).catch(function(error) {
-            console.error('Error loading review attributes:', error);
-            $('#review_attributes').html('<p class="text-muted">Error loading review attributes</p>');
-        });
-    }
-
-    var storageRef = firebase.storage().ref('images');
     async function storeImageData() {
         var newPhoto = '';
         try {
-            if (photo) {
-                photo = photo.replace(/^data:image\/[a-z]+;base64,/, "")
-                var uploadTask = await storageRef.child(fileName).putString(photo, 'base64', {contentType: 'image/jpg'});
-                var downloadURL = await uploadTask.ref.getDownloadURL();
-                newPhoto = downloadURL;
-                photo = downloadURL;
-            } else {
-                newPhoto = placeholderImage;
-            }
+            photo = photo.replace(/^data:image\/[a-z]+;base64,/, "")
+            var uploadTask = await storageRef.child(fileName).putString(photo, 'base64', {contentType: 'image/jpg'});
+            var downloadURL = await uploadTask.ref.getDownloadURL();
+            newPhoto = downloadURL;
+            photo = downloadURL;
         } catch (error) {
             console.log("ERR ===", error);
-            newPhoto = placeholderImage;
         }
         return newPhoto;
-    }
-
-    // Update parent category sub-category count
-    function updateParentCategoryCount() {
-        database.collection('mart_subcategories')
-            .where('parent_category_id', '==', categoryId)
-            .get().then(function(querySnapshot) {
-                database.collection('mart_categories').doc(categoryId).update({
-                    subcategories_count: querySnapshot.size,
-                    has_subcategories: querySnapshot.size > 0
-                });
-            });
     }
 
     //upload image with compression
@@ -308,7 +249,6 @@
         callback: function(base64str) {
             var val = $('#subcategory_image').val().toLowerCase();
             var ext = val.split('.')[1];
-            var docName = val.split('fakepath')[1];
             var filename = $('#subcategory_image').val().replace(/C:\\fakepath\\/i, '')
             var timestamp = Number(new Date());
             var filename = filename.split('.')[0] + "_" + timestamp + '.' + ext;

@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ReviewAttribute;
+use Illuminate\Http\Request;
+
 class ReviewAttributeController extends Controller
 {   
 
@@ -23,6 +26,15 @@ class ReviewAttributeController extends Controller
     public function create()
     {
         return view('reviewattributes.create');
+    }
+
+    /**
+     * Get all review attributes (API endpoint)
+     */
+    public function getAll()
+    {
+        $reviewAttributes = ReviewAttribute::all();
+        return response()->json($reviewAttributes);
     }
 
 }

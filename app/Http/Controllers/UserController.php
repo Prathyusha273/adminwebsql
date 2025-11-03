@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Mail\DynamicEmail;
 use App\Models\User;
+use App\Models\AdminUser;
 use App\Models\Role;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -45,8 +46,10 @@ class UserController extends Controller
 
     public function adminUsers()
     {
-        $users = User::join('role', 'role.id', '=', 'users.role_id')
-            ->select('users.*', 'role.role_name as roleName')->where('users.id', '!=', 1)->get();
+        $users = AdminUser::join('role', 'role.id', '=', 'admin_users.role_id')
+            ->select('admin_users.*', 'role.role_name as roleName')
+            ->where('admin_users.id', '!=', 1)
+            ->get();
         return view('admin_users.index', compact(['users']));
     }
 
@@ -69,7 +72,7 @@ class UserController extends Controller
             return redirect()->back()->with(['message' => $errorMessage])->withInput();
         }
 
-        User::create([
+        AdminUser::create([
             'name' => $request->input('name'),
             'email' => $request->input('email'),
             'password' => Hash::make($request->input('password')),
@@ -89,7 +92,10 @@ class UserController extends Controller
     }
     public function editAdminUsers($id)
     {
-        $user = User::join('role', 'role.id', '=', 'users.role_id')->select('users.*', 'role.role_name as roleName')->find($id);
+        $user = AdminUser::join('role', 'role.id', '=', 'admin_users.role_id')
+            ->select('admin_users.*', 'role.role_name as roleName')
+            ->where('admin_users.id', $id)
+            ->first();
         $roles = Role::all();
         return view('admin_users.edit', compact(['user', 'roles']));
     }
@@ -106,7 +112,7 @@ class UserController extends Controller
                 'email' => 'required|email'
             ]);
         } else {
-            $user = User::find($id);
+            $user = AdminUser::find($id);
             if (password_verify($old_password, $user->password)) {
                 $validator = Validator::make($request->all(), [
                     'name' => 'required|max:255',
@@ -124,7 +130,7 @@ class UserController extends Controller
             return Redirect()->back()->with(['message' => $error]);
         }
 
-        $user = User::find($id);
+        $user = AdminUser::find($id);
 
         if ($user) {
             $oldName = $user->name;
@@ -155,7 +161,7 @@ class UserController extends Controller
         if (is_array($id)) {
             $deletedUsers = [];
             for ($i = 0; $i < count($id); $i++) {
-                $users = User::find($id[$i]);
+                $users = AdminUser::find($id[$i]);
                 if ($users) {
                     $deletedUsers[] = $users->name;
                     $users->delete();
@@ -173,7 +179,7 @@ class UserController extends Controller
                 );
             }
         } else {
-            $user = User::find($id);
+            $user = AdminUser::find($id);
             if ($user) {
                 $userName = $user->name;
                 $user->delete();

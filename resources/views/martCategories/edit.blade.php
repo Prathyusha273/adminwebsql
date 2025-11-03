@@ -123,121 +123,91 @@
 @section('scripts')
 <script>
 var id = "<?php echo $id;?>";
-var database = firebase.firestore();
-var ref = database.collection('mart_categories').where("id", "==", id);
 var photo = "";
 var fileName="";
 var catImageFile="";
-var placeholderImage = '';
-var placeholder = database.collection('settings').doc('placeHolderImage');
-var ref_review_attributes = database.collection('review_attributes');
+var placeholderImage = '{{ asset("images/default_category.png") }}';
 var category = '';
 var storageRef = firebase.storage().ref('images');
 var storage = firebase.storage();
-placeholder.get().then(async function (snapshotsimage) {
-    var placeholderImageData = snapshotsimage.data();
-    placeholderImage = placeholderImageData.image;
-})
+
 $(document).ready(function () {
     jQuery("#data-table_processing").show();
-    ref.get().then(async function (snapshots) {
-        console.log('📊 Loading category data for ID:', id);
-        
-        if (snapshots.empty) {
-            console.error('❌ No category found with ID:', id);
-            alert('Category not found!');
-            return;
-        }
-        
-        category = snapshots.docs[0].data();
-        console.log('📝 Category data loaded:', category);
-        
-        $(".cat-name").val(category.title);
-        $(".category_description").val(category.description);
-        $("#category_section").val(category.section || 'General');
-        $("#category_order").val(category.category_order || 1);
-        
-        console.log('📋 Form fields populated:', {
-            title: category.title,
-            description: category.description,
-            section: category.section || 'General',
-            category_order: category.category_order || 1
-        });
-        
-        // Function to fix invalid Firebase photo URLs
-        function fixCategoryPhotoUrl(photoUrl) {
-            if (!photoUrl || photoUrl === '' || photoUrl === null) {
-                return null;
-            }
+    
+    // Load category data from SQL database
+    $.ajax({
+        url: '/api/mart-categories/' + id,
+        type: 'GET',
+        success: function(category) {
+            console.log('📊 Loading category data for ID:', id);
+            console.log('📝 Category data loaded:', category);
             
-            // Check if URL contains the problematic /media/ path (with or without extension)
-            if (photoUrl.includes('/media%2Fmedia_') || photoUrl.includes('/media/media_')) {
-                console.log('🔧 Fixing invalid photo URL:', photoUrl);
-                
-                // Extract the filename from the URL
-                const urlParts = photoUrl.split('/o/');
-                if (urlParts.length > 1) {
-                    const pathAndParams = urlParts[1];
-                    const pathPart = pathAndParams.split('?')[0];
-                    const decodedPath = decodeURIComponent(pathPart);
-                    
-                    // Replace /media/ with /images/ and add .jpg extension
-                    let fixedPath = decodedPath.replace('/media/', '/images/');
-                    if (!fixedPath.endsWith('.jpg') && !fixedPath.endsWith('.png') && !fixedPath.endsWith('.jpeg')) {
-                        fixedPath += '.jpg';
-                    }
-                    
-                    // Reconstruct the URL
-                    const encodedPath = encodeURIComponent(fixedPath);
-                    const newUrl = urlParts[0] + '/o/' + encodedPath + '?' + pathAndParams.split('?')[1];
-                    
-                    console.log('✅ Fixed photo URL:', newUrl);
-                    return newUrl;
-                }
-            }
+            $(".cat-name").val(category.title);
+            $(".category_description").val(category.description);
+            $("#category_section").val(category.section || 'General');
+            $("#category_order").val(category.category_order || 1);
             
-            return photoUrl; // Return original URL if no fix needed
-        }
+            console.log('📋 Form fields populated:', {
+                title: category.title,
+                description: category.description,
+                section: category.section || 'General',
+                category_order: category.category_order || 1
+            });
 
-        if (category.photo != '' && category.photo != null) {
-            photo = fixCategoryPhotoUrl(category.photo);
-            catImageFile = photo;
-            $(".cat_image").append('<img onerror="this.onerror=null;this.src=\'' + placeholderImage + '\'" class="rounded" style="width:50px" src="' + photo + '" alt="image">');
-            console.log('🖼️ Category image loaded:', photo);
-        } else {
-            $(".cat_image").append('<img class="rounded" style="width:50px" src="' + placeholderImage + '" alt="image">');
-            console.log('🖼️ Using placeholder image');
+            if (category.photo != '' && category.photo != null) {
+                photo = category.photo;
+                catImageFile = photo;
+                $(".cat_image").append('<img onerror="this.onerror=null;this.src=\'' + placeholderImage + '\'" class="rounded" style="width:50px" src="' + photo + '" alt="image">');
+                console.log('🖼️ Category image loaded:', photo);
+            } else {
+                $(".cat_image").append('<img class="rounded" style="width:50px" src="' + placeholderImage + '" alt="image">');
+                console.log('🖼️ Using placeholder image');
+            }
+            
+            if (category.publish) {
+                $("#item_publish").prop('checked', true);
+                console.log('✅ Publish checkbox checked');
+            }
+            
+            if (category.show_in_homepage) {
+                $("#show_in_homepage").prop('checked', true);
+                console.log('✅ Show in homepage checkbox checked');
+            }
+            
+            // Load review attributes
+            loadReviewAttributes(category.review_attributes || []);
+            
+            jQuery("#data-table_processing").hide();
+            console.log('✅ Category data loading completed');
+        },
+        error: function(xhr, status, error) {
+            console.error('❌ Error loading category data:', error);
+            jQuery("#data-table_processing").hide();
+            alert('Error loading category data: ' + error);
         }
-        
-        if (category.publish) {
-            $("#item_publish").prop('checked', true);
-            console.log('✅ Publish checkbox checked');
-        }
-        
-        if (category.show_in_homepage) {
-            $("#show_in_homepage").prop('checked', true);
-            console.log('✅ Show in homepage checkbox checked');
-        }
-        
-        jQuery("#data-table_processing").hide();
-        console.log('✅ Category data loading completed');
-    }).catch(function(error) {
-        console.error('❌ Error loading category data:', error);
-        jQuery("#data-table_processing").hide();
-        alert('Error loading category data: ' + error.message);
-    })
-    ref_review_attributes.get().then(async function (snapshots) {
-        var ra_html = '';
-        snapshots.docs.forEach((listval) => {
-            var data = listval.data();
-            ra_html += '<div class="form-check width-100" >';
-            var checked = $.inArray(data.id, category.review_attributes) !== -1 ? 'checked' : '';
-            ra_html += '<input type="checkbox" id="review_attribute_' + data.id + '" value="' + data.id + '" ' + checked + '>';
-            ra_html += '<label class="col-3 control-label" for="review_attribute_' + data.id + '">' + data.title + '</label>';
-            ra_html += '</div>';
-        })
-        $('#review_attributes').html(ra_html);
-    })
+    });
+
+    function loadReviewAttributes(selectedAttributes) {
+        $.ajax({
+            url: '/api/review-attributes',
+            type: 'GET',
+            success: function(reviewAttributes) {
+                var ra_html = '';
+                reviewAttributes.forEach(function(data) {
+                    var checked = selectedAttributes.includes(data.id) ? 'checked' : '';
+                    ra_html += '<div class="form-check width-100">';
+                    ra_html += '<input type="checkbox" id="review_attribute_' + data.id + '" value="' + data.id + '" ' + checked + '>';
+                    ra_html += '<label class="col-3 control-label" for="review_attribute_' + data.id + '">' + data.title + '</label>';
+                    ra_html += '</div>';
+                });
+                $('#review_attributes').html(ra_html);
+            },
+            error: function(xhr, status, error) {
+                console.error('Error loading review attributes:', error);
+            }
+        });
+    }
+
     $(".edit-setting-btn").click(async function () {
         console.log('🔍 Save button clicked - starting update process...');
         
@@ -245,13 +215,17 @@ $(document).ready(function () {
         var description = $(".category_description").val();
         var item_publish = $("#item_publish").is(":checked");
         var show_in_homepage = $("#show_in_homepage").is(":checked");
+        var section = $('#category_section').val().trim();
+        var category_order = parseInt($('#category_order').val()) || 1;
         var review_attributes = [];
         
         console.log('📝 Form values:', {
             title: title,
             description: description,
             item_publish: item_publish,
-            show_in_homepage: show_in_homepage
+            show_in_homepage: show_in_homepage,
+            section: section,
+            category_order: category_order
         });
         
         $('#review_attributes input').each(function () {
@@ -269,74 +243,46 @@ $(document).ready(function () {
         }
         
         try {
-            var count_mart_categories = 0;
-            if (show_in_homepage) {
-                // Get all categories with show_in_homepage = true, then filter in JavaScript
-                const snapshots = await database.collection('mart_categories').where('show_in_homepage', "==", true).get();
-                count_mart_categories = snapshots.docs.filter(doc => doc.data().id !== id).length;
-                console.log('📊 Found', count_mart_categories, 'other categories with show_in_homepage = true');
-            }
-            
-            if (count_mart_categories >= 5) {
-                alert("Already 5 mart categories are active for show in homepage..");
-                return false;
-            }
-            
-            console.log('🔄 Starting image processing...');
             jQuery("#data-table_processing").show();
             
-            // Process image first
-            let IMG;
-            try {
+            // Upload image to Firebase Storage if new image is selected
+            let IMG = photo;
+            if (photo != catImageFile && photo && fileName) {
+                console.log('📤 Uploading new image...');
                 IMG = await storeImageData();
-                console.log('✅ Image processed:', IMG);
-            } catch (imageError) {
-                console.error('❌ Image processing error:', imageError);
-                // Use existing image if processing fails
-                IMG = photo || catImageFile;
-                console.log('🔄 Using existing image as fallback:', IMG);
             }
-            
-            // Get section value - save user input even if not from suggestions
-            var section = $('#category_section').val().trim();
-            
-            console.log('📝 Section value:', section);
-            console.log('📝 Category order:', parseInt($('#category_order').val()) || 1);
-            
-            // Prepare update data
-            const updateData = {
-                'title': title,
-                'description': description,
-                'photo': IMG,
-                'section': section || 'General',
-                'section_order': parseInt($('#category_order').val()) || 1,
-                'category_order': parseInt($('#category_order').val()) || 1,
-                'review_attributes': review_attributes,
-                'publish': item_publish,
-                'show_in_homepage': show_in_homepage,
-            };
-            
-            console.log('📊 Update data:', updateData);
-            
-            // Update the document
-            await database.collection('mart_categories').doc(id).update(updateData);
-            console.log('✅ Mart Category updated successfully, now logging activity...');
-            
-            try {
-                if (typeof logActivity === 'function') {
-                    console.log('🔍 Calling logActivity for mart category update...');
-                    await logActivity('mart_categories', 'updated', 'Updated mart category: ' + title);
-                    console.log('✅ Activity logging completed successfully');
-                } else {
-                    console.error('❌ logActivity function is not available');
+
+            // Update via SQL database
+            $.ajax({
+                url: '/api/mart-categories/' + id + '/update',
+                type: 'POST',
+                data: {
+                    _token: '{{ csrf_token() }}',
+                    title: title,
+                    description: description,
+                    photo: IMG,
+                    section: section || 'General',
+                    category_order: category_order,
+                    publish: item_publish ? 1 : 0,
+                    show_in_homepage: show_in_homepage ? 1 : 0,
+                    review_attributes: review_attributes
+                },
+                success: function(response) {
+                    jQuery("#data-table_processing").hide();
+                    console.log('🎉 Update completed successfully!');
+                    window.location.href = '{{ route("mart-categories")}}';
+                },
+                error: function(xhr, status, error) {
+                    jQuery("#data-table_processing").hide();
+                    $(".error_top").show();
+                    $(".error_top").html("");
+                    var errorMessage = xhr.responseJSON && xhr.responseJSON.error 
+                        ? xhr.responseJSON.error 
+                        : 'Error updating category';
+                    $(".error_top").append("<p>" + errorMessage + "</p>");
+                    window.scrollTo(0, 0);
                 }
-            } catch (error) {
-                console.error('❌ Error calling logActivity:', error);
-            }
-            
-            jQuery("#data-table_processing").hide();
-            console.log('🎉 Update completed successfully!');
-            window.location.href = '{{ route("mart-categories")}}';
+            });
             
         } catch (error) {
             console.error('❌ Error during update:', error);
@@ -348,6 +294,7 @@ $(document).ready(function () {
         }
     });
 });
+
 function handleFileSelect(evt) {
     var f = evt.target.files[0];
     var reader = new FileReader();
@@ -376,6 +323,7 @@ function handleFileSelect(evt) {
     })(f);
     reader.readAsDataURL(f);
 }
+
 async function storeImageData() {
     console.log('🖼️ Starting image processing...');
     console.log('📸 Current photo:', photo);
@@ -399,11 +347,10 @@ async function storeImageData() {
                 }
             } catch (deleteError) {
                 console.log("⚠️ Error deleting old file:", deleteError);
-                // Continue with update even if delete fails
             }
         } 
         
-        // Upload new image if it's different from original
+        // Upload new image
         if (photo != catImageFile && photo && fileName) {
             console.log('📤 Uploading new image...');
             photo = photo.replace(/^data:image\/[a-z]+;base64,/, "");
@@ -418,13 +365,13 @@ async function storeImageData() {
         }
     } catch (error) {
         console.error("❌ Error in storeImageData:", error);
-        // Return existing photo if upload fails
         newPhoto = photo || catImageFile;
     }
     
     console.log('🖼️ Final photo URL:', newPhoto);
     return newPhoto;
 }  
+
 //upload image with compression
 $("#category_image").resizeImg({
     callback: function(base64str) {

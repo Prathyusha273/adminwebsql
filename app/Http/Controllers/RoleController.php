@@ -31,65 +31,84 @@ class RoleController extends Controller
     }
     public function store(Request $request)
     {
-       $permission=$request->all();
+        // Validate role name
+        $request->validate([
+            'name' => 'required|string|max:255'
+        ]);
 
-       $roles= Role::create([
+        $permission = $request->all();
+
+        // Create role
+        $roles = Role::create([
             'role_name' => $request->input('name'),
         ]);
-        $roleId=$roles->id;
+        $roleId = $roles->id;
 
+        // Create permissions
         foreach ($permission as $key => $data) {
             if (is_array($data)) {
                 foreach ($data as $value) {
+                    // Ensure values are strings
                     Permission::create([
-                        'role_id' => $roleId,
-                        'permission' => $key,
-                        'routes'=>$value
+                        'role_id' => (int) $roleId,
+                        'permission' => (string) $key,
+                        'routes' => (string) $value
                     ]);
                 }
-
             }
         }
 
-        return redirect('role');
+        return redirect('role')->with('success', 'Role created successfully');
     }
-    public function update(Request $request,$id)
+    public function update(Request $request, $id)
     {
+        // Validate role name
+        $request->validate([
+            'name' => 'required|string|max:255'
+        ]);
+
         $permission = $request->all();
         $roleHasPermissions = Permission::where('role_id', $id)->pluck('routes')->toArray();
-        $chkPermissionArr=[];
+        $chkPermissionArr = [];
+        
+        // Update role
         $roles = Role::find($id);
-        if($roles){
+        if ($roles) {
             $roles->role_name = $request->input('name');
             $roles->save();
         }
-        $roleId = $id;
         
+        $roleId = (int) $id;
+        
+        // Add new permissions
         foreach ($permission as $key => $data) {
             if (is_array($data)) {
                 foreach ($data as $value) {
-                    array_push($chkPermissionArr,$value);
+                    array_push($chkPermissionArr, $value);
                     if (!in_array($value, $roleHasPermissions)) {
+                        // Ensure values are strings
                         Permission::create([
                             'role_id' => $roleId,
-                            'permission' => $key,
-                            'routes' => $value
+                            'permission' => (string) $key,
+                            'routes' => (string) $value
                         ]);
                     }
                 }
-
             }
         }
+        
+        // Remove old permissions that are no longer selected
         for ($i = 0; $i < count($roleHasPermissions); $i++) {
             if (!in_array($roleHasPermissions[$i], $chkPermissionArr)) {
-                $permissionToDelete=Permission::where('routes', $roleHasPermissions[$i])->where('role_id', $roleId);
-                if($permissionToDelete){
+                $permissionToDelete = Permission::where('routes', $roleHasPermissions[$i])
+                    ->where('role_id', $roleId);
+                if ($permissionToDelete) {
                     $permissionToDelete->delete();
                 }
             }
         }
  
-        return redirect('role');
+        return redirect('role')->with('success', 'Role updated successfully');
     }
 
     public function delete($id){

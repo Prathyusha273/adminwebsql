@@ -124,25 +124,35 @@
 @endsection
 @section('scripts')
 <script>
-    var database = firebase.firestore();
-    var ref = database.collection('mart_categories');
     var photo = "";
     var fileName='';
-    var id_category = "<?php echo uniqid();?>";
-    var category_length = 1;
     var placeholderImage = '';
-    var placeholder = database.collection('settings').doc('placeHolderImage');
-    var ref_review_attributes = database.collection('review_attributes');
-    placeholder.get().then(async function (snapshotsimage) {
-        var placeholderImageData = snapshotsimage.data();
-        placeholderImage = placeholderImageData.image;
-    })
+    var storageRef = firebase.storage().ref('images');
+
     $(document).ready(function () {
         jQuery("#data-table_processing").show();
-        ref.get().then(async function (snapshots) {
-            category_length = snapshots.size + 1;
-            jQuery("#data-table_processing").hide();
-        })
+        
+        // Load review attributes from SQL database
+        $.ajax({
+            url: '/api/review-attributes',
+            type: 'GET',
+            success: function(reviewAttributes) {
+                var ra_html = '';
+                reviewAttributes.forEach(function(data) {
+                    ra_html += '<div class="form-check width-100">';
+                    ra_html += '<input type="checkbox" id="review_attribute_' + data.id + '" value="' + data.id + '">';
+                    ra_html += '<label class="col-3 control-label" for="review_attribute_' + data.id + '">' + data.title + '</label>';
+                    ra_html += '</div>';
+                });
+                $('#review_attributes').html(ra_html);
+                jQuery("#data-table_processing").hide();
+            },
+            error: function(xhr, status, error) {
+                console.error('Error loading review attributes:', error);
+                jQuery("#data-table_processing").hide();
+            }
+        });
+
         $(".save-setting-btn").click(async function () {
             var title = $(".cat-name").val();
             var description = $(".category_description").val();
@@ -159,79 +169,70 @@
                 item_publish: item_publish,
                 show_in_homepage: show_in_homepage
             });
+
             var review_attributes = [];
             $('#review_attributes input').each(function () {
                 if ($(this).is(':checked')) {
                     review_attributes.push($(this).val());
                 }
             });
+
             if (title == '') {
                 $(".error_top").show();
                 $(".error_top").html("");
                 $(".error_top").append("<p>Please enter a mart category name</p>");
                 window.scrollTo(0, 0);
             } else {
-                var count_mart_categories = 0;
-                    if (show_in_homepage) {
-                        await database.collection('mart_categories').where('show_in_homepage', "==", true).get().then(async function (snapshots) {
-                    count_mart_categories = snapshots.docs.length;
-                    });
+                jQuery("#data-table_processing").show();
+                
+                try {
+                    // Upload image to Firebase Storage if exists
+                    let IMG = '';
+                    if (photo && fileName) {
+                        IMG = await storeImageData();
                     }
-                    if (count_mart_categories >= 5) {
-                alert("Already 5 mart categories are active for show in homepage..");
-                return false;
-            } else {
-				jQuery("#data-table_processing").show();
-              storeImageData().then(IMG => {
-                database.collection('mart_categories').doc(id_category).set({
-                    'id': id_category,
-                    'title': title,
-                    'description': description,
-                    'photo': IMG,
-                    'section': section || 'General',
-                    'category_order': category_order,
-                    'section_order': category_order,
-                    'review_attributes': review_attributes,
-                    'publish': item_publish,
-                    'show_in_homepage': show_in_homepage,
-                }).then(async function (result) {
-                    console.log('✅ Mart Category saved successfully, now logging activity...');
-                    try {
-                        if (typeof logActivity === 'function') {
-                            console.log('🔍 Calling logActivity for mart category creation...');
-                            await logActivity('mart_categories', 'created', 'Created new mart category: ' + title);
-                            console.log('✅ Activity logging completed successfully');
-                        } else {
-                            console.error('❌ logActivity function is not available');
+
+                    // Save to SQL database via AJAX
+                    $.ajax({
+                        url: '{{ route("api.mart-categories.store") }}',
+                        type: 'POST',
+                        data: {
+                            _token: '{{ csrf_token() }}',
+                            title: title,
+                            description: description,
+                            photo: IMG,
+                            section: section || 'General',
+                            category_order: category_order,
+                            publish: item_publish ? 1 : 0,
+                            show_in_homepage: show_in_homepage ? 1 : 0,
+                            review_attributes: review_attributes
+                        },
+                        success: function(response) {
+                            jQuery("#data-table_processing").hide();
+                            window.location.href = '{{ route("mart-categories")}}';
+                        },
+                        error: function(xhr, status, error) {
+                            jQuery("#data-table_processing").hide();
+                            $(".error_top").show();
+                            $(".error_top").html("");
+                            var errorMessage = xhr.responseJSON && xhr.responseJSON.error 
+                                ? xhr.responseJSON.error 
+                                : 'Error saving category';
+                            $(".error_top").append("<p>" + errorMessage + "</p>");
+                            window.scrollTo(0, 0);
                         }
-                    } catch (error) {
-                        console.error('❌ Error calling logActivity:', error);
-                    }
+                    });
+                } catch (error) {
                     jQuery("#data-table_processing").hide();
-                    window.location.href = '{{ route("mart-categories")}}';
-                });
-                }).catch(function (error) {
-				jQuery("#data-table_processing").hide();
-                $(".error_top").show();
-                $(".error_top").html("");
-                $(".error_top").append("<p>" + error + "</p>");
-            })
-             }
+                    $(".error_top").show();
+                    $(".error_top").html("");
+                    $(".error_top").append("<p>" + error + "</p>");
+                    window.scrollTo(0, 0);
+                }
             }
         });
     });
-    ref_review_attributes.get().then(async function (snapshots) {
-        var ra_html = '';
-        snapshots.docs.forEach((listval) => {
-            var data = listval.data();
-            ra_html += '<div class="form-check width-100">';
-            ra_html += '<input type="checkbox" id="review_attribute_' + data.id + '" value="' + data.id + '">';
-            ra_html += '<label class="col-3 control-label" for="review_attribute_' + data.id + '">' + data.title + '</label>';
-            ra_html += '</div>';
-        });
-        $('#review_attributes').html(ra_html);
-    });
-    var storageRef = firebase.storage().ref('images');
+
     async function storeImageData() {
         var newPhoto = '';
         try {
@@ -245,6 +246,7 @@
         }
         return newPhoto;
     }
+
     function handleFileSelect(evt) {
         var f = evt.target.files[0];
         var reader = new FileReader();
@@ -273,6 +275,7 @@
         })(f);
         reader.readAsDataURL(f);
     }
+
     //upload image with compression
     $("#category_image").resizeImg({
         callback: function(base64str) {
