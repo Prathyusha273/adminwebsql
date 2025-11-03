@@ -2093,15 +2093,28 @@ class RestaurantController extends Controller
     public function getPlaceholderImage()
     {
         try {
+            // Settings table has Firebase-migrated structure: doc_id, document_name, fields
             $placeholder = DB::table('settings')
-                            ->where('key', 'placeHolderImage')
+                            ->where('document_name', 'placeHolderImage')
                             ->first();
             
+            if ($placeholder && !empty($placeholder->fields)) {
+                $fieldsData = json_decode($placeholder->fields, true);
+                if (isset($fieldsData['image'])) {
+                    return response()->json([
+                        'success' => true,
+                        'image' => $fieldsData['image']
+                    ]);
+                }
+            }
+            
+            // Return default placeholder if not found
             return response()->json([
                 'success' => true,
-                'image' => $placeholder->value ?? ''
+                'image' => asset('images/placeholder-image.png')
             ]);
         } catch (\Exception $e) {
+            \Log::error('Error fetching placeholder image: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching placeholder image: ' . $e->getMessage()

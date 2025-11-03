@@ -290,156 +290,215 @@
 @endsection
 @section('scripts')
     <script type="text/javascript">
-        const urlParams=new URLSearchParams(location.search);
-        for(const [key,value] of urlParams) {
-            if(key=='categoryID') {
-                var categoryID=value;
-            } else {
-                var categoryID='';
-            }
-        }
-        var database=firebase.firestore();
-        var currentCurrency='';
-        var currencyAtRight=false;
-        var decimal_degits=0;
-        var storage=firebase.storage();
-        var storageRef=firebase.storage().ref('images');
-        var user_permissions='<?php echo @session("user_permissions") ?>';
-        user_permissions=Object.values(JSON.parse(user_permissions));
-        var checkDeletePermission=false;
+        // Global variables
+        var currentCurrency = '';
+        var currencyAtRight = false;
+        var decimal_degits = 0;
+        var placeholderImage = '';
+        var user_permissions = '<?php echo @session("user_permissions") ?>';
+        user_permissions = Object.values(JSON.parse(user_permissions));
+        var checkDeletePermission = false;
+        
         console.log('🔍 User permissions:', user_permissions);
-        console.log('🔍 Checking for mart-items.delete permission...');
-        if($.inArray('mart-items.delete',user_permissions)>=0) {
-            checkDeletePermission=true;
+        if($.inArray('mart-items.delete', user_permissions) >= 0) {
+            checkDeletePermission = true;
             console.log('✅ Delete permission granted');
         } else {
-            console.log('❌ Delete permission not found. Available permissions:', user_permissions);
+            console.log('❌ Delete permission not found');
         }
-        var restaurantID="{{$id}}";
-        if(categoryID!=''&&categoryID!=undefined) {
-            var ref=database.collection('mart_items').where('categoryID','==',categoryID);
-        } else {
-            <?php if ($id != '') { ?>
-            database.collection('vendors').doc('<?php echo $id; ?>').get().then(async function(snapshot) {
-                if(snapshot.exists) {
-                    var vendorData = snapshot.data();
-                    // Check if it's a mart vendor
-                    if (vendorData.vType && (vendorData.vType.toLowerCase() === 'mart' || vendorData.vType === 'Mart')) {
-                        walletRoute="{{route('users.walletstransaction', ':id')}}";
-                        walletRoute=walletRoute.replace(":id",vendorData.author);
-                        $('#restaurant_wallet').append('<a href="'+walletRoute+'">{{trans("lang.wallet_transaction")}}</a>');
-                        $('#subscription_plan').append('<a href="'+"{{route('vendor.subscriptionPlanHistory', ':id')}}".replace(':id',vendorData.author)+'">'+'{{trans('lang.subscription_history')}}'+'</a>');
-                    }
-                }
-            });
-            var ref=database.collection('mart_items').where('vendorID','==','<?php echo $id; ?>');
-            const getStoreName=getStoreNameFunction('<?php echo $id; ?>');
-            <?php } else { ?>
-            var ref=database.collection('mart_items');
-            <?php } ?>
-        }
-        var refCurrency=database.collection('currencies').where('isActive','==',true);
-        var append_list='';
-        refCurrency.get().then(async function(snapshots) {
-            var currencyData=snapshots.docs[0].data();
-            currentCurrency=currencyData.symbol;
-            currencyAtRight=currencyData.symbolAtRight;
-            if(currencyData.decimal_degits) {
-                decimal_degits=currencyData.decimal_degits;
-            }
-        });
-        var placeholderImage='';
-        var placeholder=database.collection('settings').doc('placeHolderImage');
-        placeholder.get().then(async function(snapshotsimage) {
-            var placeholderImageData=snapshotsimage.data();
-            placeholderImage=placeholderImageData.image;
-        })
-        database.collection('mart_categories').get().then(async function(snapshots) {
-            snapshots.docs.forEach((listval) => {
-                var data=listval.data();
-                $('.category_selector').append($("<option></option>")
-                    .attr("value",data.id)
-                    .text(data.title));
-            })
-        });
+
+        var restaurantID = "{{$id}}";
         
-        // Load brands for filter
-        database.collection('brands').where('status','==',true).get().then(async function(snapshots) {
-            snapshots.docs.forEach((listval) => {
-                var data=listval.data();
-                $('.brand_selector').append($("<option></option>")
-                    .attr("value",data.id)
-                    .text(data.name));
-            })
+        console.log('🔍 Restaurant ID from URL:', restaurantID);
+        
+        // URL parameters
+        const urlParams = new URLSearchParams(location.search);
+        var categoryID = '';
+        for(const [key, value] of urlParams) {
+            if(key == 'categoryID') {
+                categoryID = value;
+            }
+        }
+
+        // Filter state - IMPORTANT: Don't filter by non-existent vendor
+        window.selectedVendor = '';  // Always start with no vendor filter
+        window.selectedCategory = categoryID || '';
+        window.selectedBrand = '';
+        window.selectedFoodType = '';
+        window.selectedFeature = '';
+        
+        console.log('🎯 Initial filters:', {
+            vendor: window.selectedVendor,
+            category: window.selectedCategory,
+            brand: window.selectedBrand,
+            foodType: window.selectedFoodType,
+            feature: window.selectedFeature
         });
-        // Try both 'mart' and 'Mart' to handle case sensitivity
-        // Fetch vendors with vType: 'mart' (case-insensitive)
-        database.collection('vendors').get().then(async function(snapshots) {
-            console.log('🔍 Found ' + snapshots.docs.length + ' total vendors');
-            snapshots.docs.forEach((listval) => {
-                var data = listval.data();
-                // Check for mart vendors (case-insensitive)
-                if (data.vType && (data.vType.toLowerCase() === 'mart' || data.vType === 'Mart')) {
-                    console.log('📋 Mart Vendor:', data.title, 'ID:', data.id, 'vType:', data.vType);
-                    if (data.title != '' && data.title != null) {
-                        $('.restaurant_selector').append($("<option></option>")
-                            .attr("value", data.id)
-                            .text(data.title));
+
+        // Set defaults first
+        currentCurrency = '₹';
+        currencyAtRight = false;
+        decimal_degits = 0;
+        placeholderImage = '/images/placeholder.png';
+
+        // Load currency settings (async, but with defaults already set)
+        $.ajax({
+            url: '{{ route("mart-items.currency-settings") }}',
+            method: 'GET',
+            success: function(data) {
+                currentCurrency = data.symbol || '₹';
+                currencyAtRight = data.symbolAtRight || false;
+                decimal_degits = data.decimal_degits || 0;
+                console.log('✅ Currency loaded:', currentCurrency);
+            },
+            error: function() {
+                console.warn('⚠️ Using default currency');
+            }
+        });
+
+        // Load placeholder image (async, but with default already set)
+        $.ajax({
+            url: '{{ route("mart-items.placeholder-image") }}',
+            method: 'GET',
+            success: function(data) {
+                if (data.image) {
+                    placeholderImage = data.image;
+                    console.log('✅ Placeholder loaded:', placeholderImage);
+                }
+            },
+            error: function() {
+                console.warn('⚠️ Using default placeholder');
+            }
+        });
+
+        // Load categories
+        $.ajax({
+            url: '{{ route("mart-items.categories") }}',
+            method: 'GET',
+            success: function(categories) {
+                console.log('📦 Categories response:', categories);
+                if (Array.isArray(categories)) {
+                    categories.forEach(function(category) {
+                        $('.category_selector').append($("<option></option>")
+                            .attr("value", category.id)
+                            .text(category.title));
+                    });
+                    console.log('✅ Loaded ' + categories.length + ' categories');
+                } else {
+                    console.error('❌ Categories response is not an array:', categories);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('❌ Error fetching categories:', error);
+                console.error('Response:', xhr.responseText);
+            }
+        });
+
+        // Load brands
+        $.ajax({
+            url: '{{ route("mart-items.brands") }}',
+            method: 'GET',
+            success: function(brands) {
+                console.log('📦 Brands response:', brands);
+                if (Array.isArray(brands)) {
+                    brands.forEach(function(brand) {
+                        $('.brand_selector').append($("<option></option>")
+                            .attr("value", brand.id)
+                            .text(brand.name));
+                    });
+                    console.log('✅ Loaded ' + brands.length + ' brands');
+                } else {
+                    console.error('❌ Brands response is not an array:', brands);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('❌ Error fetching brands:', error);
+                console.error('Response:', xhr.responseText);
+            }
+        });
+
+        // Load vendors (mart vendors only)
+        $.ajax({
+            url: '{{ route("mart-items.vendors") }}',
+            method: 'GET',
+            success: function(vendors) {
+                console.log('📦 Vendors response:', vendors);
+                if (Array.isArray(vendors)) {
+                    console.log('🔍 Found ' + vendors.length + ' mart vendors');
+                    vendors.forEach(function(vendor) {
+                        console.log('📋 Mart Vendor:', vendor.title, 'ID:', vendor.id);
+                        if (vendor.title != '' && vendor.title != null) {
+                            $('.restaurant_selector').append($("<option></option>")
+                                .attr("value", vendor.id)
+                                .text(vendor.title));
+                        }
+                    });
+                    console.log('✅ Loaded ' + vendors.length + ' vendors');
+                } else {
+                    console.error('❌ Vendors response is not an array:', vendors);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('❌ Error fetching vendors:', error);
+                console.error('Response:', xhr.responseText);
+            }
+        });
+
+        <?php if ($id != '') { ?>
+        // Load vendor data for tabs (only if valid vendor ID)
+        console.log('🏪 Attempting to load vendor data for ID:', '<?php echo $id; ?>');
+        
+        $.ajax({
+            url: '{{ route("vendors.getById", ":id") }}'.replace(':id', '<?php echo $id; ?>'),
+            method: 'GET',
+            success: function(vendorData) {
+                console.log('✅ Vendor data loaded:', vendorData);
+                
+                if (vendorData && vendorData.vType && (vendorData.vType.toLowerCase() === 'mart' || vendorData.vType === 'Mart')) {
+                    // Valid mart vendor - apply filter
+                    window.selectedVendor = '<?php echo $id; ?>';
+                    console.log('✅ Valid mart vendor found, applying filter:', window.selectedVendor);
+                    
+                    walletRoute = "{{route('users.walletstransaction', ':id')}}";
+                    walletRoute = walletRoute.replace(":id", vendorData.author);
+                    $('#restaurant_wallet').append('<a href="' + walletRoute + '">{{trans("lang.wallet_transaction")}}</a>');
+                    $('#subscription_plan').append('<a href="' + "{{route('vendor.subscriptionPlanHistory', ':id')}}".replace(':id', vendorData.author) + '">' + '{{trans('lang.subscription_history')}}' + '</a>');
+                    
+                    // Update page title
+                    $('.restaurantTitle').html('{{trans("lang.mart_item_plural")}} - ' + vendorData.title);
+                    
+                    // Reload table with vendor filter
+                    if (typeof $('#foodTable').DataTable === 'function') {
+                        $('#foodTable').DataTable().ajax.reload();
                     }
+                } else {
+                    console.warn('⚠️ Not a mart vendor or vendor not found');
                 }
-            });
-        }).catch(function(error) {
-            console.error('❌ Error fetching vendors:', error);
+            },
+            error: function(xhr, status, error) {
+                console.error('❌ Error loading vendor:', error, 'Status:', xhr.status);
+                console.warn('⚠️ Vendor not found, showing all items instead');
+                // Don't apply vendor filter if vendor doesn't exist
+                window.selectedVendor = '';
+            }
         });
-        var initialRef=ref;
-        $('select').change(async function() {
-            var restaurant = $('.restaurant_selector').val();
-            var foodType = $('.food_type_selector').val();
-            var category = $('.category_selector').val();
-            var feature = $('.feature_selector').val();
-            var brand = $('.brand_selector').val();
-            refData = initialRef;
-            if (restaurant) {
-                refData = refData.where('vendorID', '==', restaurant);
-            }
-            if (foodType) {
-                refData= (foodType=="veg") ? refData.where('nonveg', '==', false) : refData.where('nonveg', '==', true)
-            }
-            if (category) {
-                refData=refData.where('categoryID','==',category);
-            }
-            if (feature) {
-                switch(feature) {
-                    case 'spotlight':
-                        refData = refData.where('isSpotlight', '==', true);
-                        break;
-                    case 'steal_of_moment':
-                        refData = refData.where('isStealOfMoment', '==', true);
-                        break;
-                    case 'featured':
-                        refData = refData.where('isFeature', '==', true);
-                        break;
-                    case 'trending':
-                        refData = refData.where('isTrending', '==', true);
-                        break;
-                    case 'new':
-                        refData = refData.where('isNew', '==', true);
-                        break;
-                    case 'best_seller':
-                        refData = refData.where('isBestSeller', '==', true);
-                        break;
-                    case 'seasonal':
-                        refData = refData.where('isSeasonal', '==', true);
-                        break;
-                }
-            }
-            if (brand) {
-                refData = refData.where('brandID', '==', brand);
-            }
-            ref=refData;
+        <?php } ?>
+        // Filter change handler
+        $('select').change(function() {
+            window.selectedVendor = $('.restaurant_selector').val() || '';
+            window.selectedFoodType = $('.food_type_selector').val() || '';
+            window.selectedCategory = $('.category_selector').val() || '';
+            window.selectedFeature = $('.feature_selector').val() || '';
+            window.selectedBrand = $('.brand_selector').val() || '';
+            
             $('#foodTable').DataTable().ajax.reload();
         });
         $(document).ready(function() {
+            console.log('✅ Document ready!');
+            console.log('✅ jQuery version:', $.fn.jquery);
+            console.log('✅ DataTable available:', typeof $.fn.DataTable);
+            console.log('✅ Food table element exists:', $('#foodTable').length > 0);
+            
             $('.restaurant_selector').select2({
                 placeholder: "Mart",
                 minimumResultsForSearch: Infinity,
@@ -500,136 +559,124 @@
                 ],
                 fileName: "Mart Items",
             };
+            
+            console.log('🎯 About to initialize DataTable on #foodTable');
+            console.log('🎯 Table element:', $('#foodTable'));
+            console.log('🎯 Current filters:', {
+                vendor: window.selectedVendor,
+                category: window.selectedCategory
+            });
+            
             const table=$('#foodTable').DataTable({
                 pageLength: 10, // Number of rows per page
                 processing: false, // Show processing indicator
                 serverSide: true, // Enable server-side processing
                 responsive: true,
-                ajax: async function(data,callback,settings) {
-                    const start=data.start;
-                    const length=data.length;
-                    const searchValue=data.search.value.toLowerCase();
-                    const orderColumnIndex=data.order[0].column;
-                    const orderDirection=data.order[0].dir;
-                    @if($id!='')
-                    const orderableColumns=(checkDeletePermission)? ['','foodName','price','disPrice','category','brand','','']:['name','price','disPrice','category','brand','','']; // Ensure this matches the actual column names
-                    @else
-                    const orderableColumns=(checkDeletePermission)? ['','foodName','price','disPrice','restaurant','category','brand','','']:['name','price','disPrice','restaurant','category','brand','','']; // Ensure this matches the actual column names
-                    @endif
-                    const orderByField=orderableColumns[orderColumnIndex]; // Adjust the index to match your table
-                    if(searchValue.length>=3||searchValue.length===0) {
-                        $('#data-table_processing').show();
-                    }
-                    await ref.get().then(async function(querySnapshot) {
-                        if(querySnapshot.empty) {
+                ajax: function(data, callback, settings) {
+                    console.log('🔄 DataTable AJAX function called');
+                    console.log('📊 DataTable data:', data);
+                    
+                    $('#data-table_processing').show();
+                    
+                    // Build AJAX request
+                    var apiUrl = '{{ route("mart-items.data") }}';
+                    console.log('🔗 API URL:', apiUrl);
+                    
+                    var requestData = {
+                        draw: data.draw,
+                        start: data.start,
+                        length: data.length,
+                        'search[value]': data.search.value,
+                        'order[0][column]': data.order[0].column,
+                        'order[0][dir]': data.order[0].dir,
+                        vendor_id: window.selectedVendor,
+                        category_id: window.selectedCategory,
+                        brand_id: window.selectedBrand,
+                        food_type: window.selectedFoodType,
+                        feature: window.selectedFeature
+                    };
+                    
+                    console.log('📤 Request data being sent:', requestData);
+                    
+                    $.ajax({
+                        url: apiUrl,
+                        type: 'GET',
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        data: requestData,
+                        success: function(response) {
+                            console.log('📦 DataTable response:', response);
+                            $('#data-table_processing').hide();
+                            
+                            // Check if response has error
+                            if (response.error) {
+                                console.error('❌ API Error:', response.error);
+                                alert('Error loading data: ' + response.error);
+                                $('.food_count').text(0);
+                                callback({
+                                    draw: data.draw,
+                                    recordsTotal: 0,
+                                    recordsFiltered: 0,
+                                    data: []
+                                });
+                                return;
+                            }
+                            
+                            $('.food_count').text(response.recordsTotal || 0);
+                            
+                            // Build HTML for each row
+                            var records = [];
+                            if (Array.isArray(response.data)) {
+                                console.log('✅ Response data is an array with', response.data.length, 'items');
+                                
+                                response.data.forEach(function(item, index) {
+                                    console.log('🔨 Building HTML for item', index + 1, ':', item.name);
+                                    try {
+                                        var html = buildHTML(item);
+                                        console.log('✅ HTML built for', item.name, '- columns:', html.length);
+                                        records.push(html);
+                                    } catch(e) {
+                                        console.error('❌ Error building HTML for item:', item.name, e);
+                                    }
+                                });
+                                console.log('✅ Built ' + records.length + ' table rows total');
+                            } else {
+                                console.error('❌ Response data is not an array:', response.data);
+                            }
+                            
+                            console.log('📤 Calling DataTable callback with', records.length, 'records');
+                            
+                            callback({
+                                draw: response.draw,
+                                recordsTotal: response.recordsTotal || 0,
+                                recordsFiltered: response.recordsFiltered || 0,
+                                data: records
+                            });
+                            
+                            console.log('✅ DataTable callback completed');
+                        },
+                        error: function(xhr, error, thrown) {
+                            console.error("❌ Error fetching data:", error);
+                            console.error("Response:", xhr.responseText);
+                            console.error("Status:", xhr.status);
+                            $('#data-table_processing').hide();
                             $('.food_count').text(0);
-                            console.error("No data found in Firestore.");
-                            $('#data-table_processing').hide(); // Hide loader
+                            
+                            // Show user-friendly error
+                            if (xhr.status === 500) {
+                                alert('Server error loading items. Please check the logs.');
+                            } else if (xhr.status === 404) {
+                                alert('API endpoint not found. Please check routes.');
+                            }
+                            
                             callback({
                                 draw: data.draw,
                                 recordsTotal: 0,
                                 recordsFiltered: 0,
-                                filteredData: [],
-                                data: [] // No data
+                                data: []
                             });
-                            return;
                         }
-                        var restaurantNames={};
-                        // Fetch restaurants names (mart vendors only)
-                        @if($id=='')
-                        const vendorDocs=await database.collection('vendors').get();
-                        vendorDocs.forEach(doc => {
-                            var vendorData = doc.data();
-                            if (vendorData.vType && (vendorData.vType.toLowerCase() === 'mart' || vendorData.vType === 'Mart')) {
-                                restaurantNames[doc.id]=vendorData.title;
-                            }
-                        });
-                        @endif
-                        var categoryNames={};
-                        const categoryDocs=await database.collection('mart_categories').get();
-                        categoryDocs.forEach(doc => {
-                            categoryNames[doc.id]=doc.data().title;
-                        });
-                        
-                        var brandNames={};
-                        const brandDocs=await database.collection('brands').get();
-                        brandDocs.forEach(doc => {
-                            brandNames[doc.id]=doc.data().name;
-                        });
-                        let records=[];
-                        let filteredRecords=[];
-                        await Promise.all(querySnapshot.docs.map(async (doc) => {
-                            let childData=doc.data();
-                            childData.id=doc.id; // Ensure the document ID is included in the data
-                            var finalPrice=0;
-                            if(childData.hasOwnProperty('disPrice')&&childData.disPrice!=''&&childData.disPrice!='0') {
-                                finalPrice=childData.disPrice;
-                            } else {
-                                finalPrice=childData.price;
-                            }
-                            childData.foodName=childData.name;
-                            childData.finalPrice=parseInt(finalPrice);
-                            childData.restaurant=restaurantNames[childData.vendorID]||'';
-                            childData.category=categoryNames[childData.categoryID]||'';
-                            childData.brand=brandNames[childData.brandID]||'';
-                            if(searchValue) {
-                                if(
-                                    (childData.name&&childData.name.toString().toLowerCase().includes(searchValue))||
-                                    (childData.price&&childData.price.toString().includes(searchValue))||
-                                    (childData.disPrice&&childData.disPrice.toString().includes(searchValue))||
-                                    (childData.restaurant&&childData.restaurant.toString().toLowerCase().includes(searchValue))||
-                                    (childData.category&&childData.category.toString().toLowerCase().includes(searchValue))||
-                                    (childData.brand&&childData.brand.toString().toLowerCase().includes(searchValue))||
-                                    (childData.price_range&&childData.price_range.toString().toLowerCase().includes(searchValue))||
-                                    (childData.best_value_option&&childData.best_value_option.toString().toLowerCase().includes(searchValue))
-                                ) {
-                                    filteredRecords.push(childData);
-                                }
-                            } else {
-                                filteredRecords.push(childData);
-                            }
-                        }));
-                        filteredRecords.sort((a,b) => {
-                            let aValue=a[orderByField];
-                            let bValue=b[orderByField];
-                            if(orderByField==='price'||orderByField==='disPrice') {
-                                aValue=a[orderByField]? parseInt(a[orderByField]):0;
-                                bValue=b[orderByField]? parseInt(b[orderByField]):0;
-                            } else {
-                                aValue=a[orderByField]? a[orderByField].toString().toLowerCase():'';
-                                bValue=b[orderByField]? b[orderByField].toString().toLowerCase():''
-                            }
-                            if(orderDirection==='asc') {
-                                return (aValue>bValue)? 1:-1;
-                            } else {
-                                return (aValue<bValue)? 1:-1;
-                            }
-                        });
-                        const totalRecords=filteredRecords.length;
-                        $('.food_count').text(totalRecords);
-                        const paginatedRecords=filteredRecords.slice(start,start+length);
-                        await Promise.all(paginatedRecords.map(async (childData) => {
-                            var getData=await buildHTML(childData);
-                            records.push(getData);
-                        }));
-                        $('#data-table_processing').hide(); // Hide loader
-                        callback({
-                            draw: data.draw,
-                            recordsTotal: totalRecords, // Total number of records in Firestore
-                            recordsFiltered: totalRecords,
-                            filteredData: filteredRecords,
-                            data: records // The actual data to display in the table
-                        });
-                    }).catch(function(error) {
-                        console.error("Error fetching data from Firestore:",error);
-                        $('#data-table_processing').hide(); // Hide loader
-                        callback({
-                            draw: data.draw,
-                            recordsTotal: 0,
-                            recordsFiltered: 0,
-                            filteredData: [],
-                            data: [] // No data due to error
-                        });
                     });
                 },
                 order: (checkDeletePermission)? [1,'asc']:[0,'asc'],
@@ -706,9 +753,8 @@
                 timeout=setTimeout(() => func.apply(context,args),wait);
             };
         }
-        async function buildHTML(val) {
+        function buildHTML(val) {
             var html=[];
-            newdate='';
             var imageHtml='';
             var id=val.id;
             var route1='{{route("mart-items.edit", ":id")}}';
@@ -727,7 +773,7 @@
             }
             html.push(imageHtml+'<a href="'+route1+'" >'+val.name+'</a>');
             // Original price column - editable
-            if(val.hasOwnProperty('disPrice') && val.disPrice != '' && val.disPrice != '0' && val.disPrice != val.price) {
+            if(val.disPrice && val.disPrice != '' && val.disPrice != 0 && val.disPrice != val.price) {
                 // Has discount - show original price with strikethrough
                 if(currencyAtRight) {
                     html.push('<span class="editable-price text-muted" style="text-decoration: line-through; cursor: pointer;" data-id="'+val.id+'" data-field="price" data-value="'+val.price+'">'+parseFloat(val.price).toFixed(decimal_degits)+''+currentCurrency+'</span>');
@@ -753,22 +799,22 @@
             <?php if ($id == '') { ?>
             var restaurantroute='{{route("restaurants.view", ":id")}}';
             restaurantroute=restaurantroute.replace(':id',val.vendorID);
-            html.push('<a href="'+restaurantroute+'">'+val.restaurant+'</a>');
+            html.push('<a href="'+restaurantroute+'">'+(val.vendorTitle || '')+'</a>');
             <?php } ?>
             var caregoryroute='{{route("categories.edit", ":id")}}';
             caregoryroute=caregoryroute.replace(':id',val.categoryID);
-            html.push('<a href="'+caregoryroute+'">'+val.category+'</a>');
+            html.push('<a href="'+caregoryroute+'">'+(val.categoryTitle || '')+'</a>');
             
             // Add brand display
-            if(val.brand && val.brand !== '') {
-                html.push('<span class="badge badge-info">'+val.brand+'</span>');
+            if(val.brandTitle && val.brandTitle !== '') {
+                html.push('<span class="badge badge-info">'+val.brandTitle+'</span>');
             } else {
                 html.push('<span class="text-muted">No Brand</span>');
             }
 
             // Enhanced Options column
             if(val.has_options && val.options && val.options.length > 0) {
-                const optionsCount = val.options.length;
+                const optionsCount = val.options_count || val.options.length;
                 const priceRange = val.price_range || `₹${val.min_price || 0} - ₹${val.max_price || 0}`;
                 const bestValue = val.best_value_option ? 'Best Value' : '';
                 const savings = val.savings_percentage ? `${val.savings_percentage.toFixed(1)}% off` : '';
@@ -796,10 +842,7 @@
             var actionHtml='';
             actionHtml+='<span class="action-btn"><a href="'+route1+'" class="link-td"><i class="mdi mdi-lead-pencil" title="Edit"></i></a>';
             if(checkDeletePermission) {
-                console.log('🔍 Adding delete button for item:', val.id, 'Permission check:', checkDeletePermission);
                 actionHtml+='<a id="'+val.id+'" name="food-delete" href="javascript:void(0)" class="delete-btn" title="Delete Item"><i class="mdi mdi-delete"></i></a>';
-            } else {
-                console.log('⚠️ Delete permission not granted for item:', val.id, 'Permission check:', checkDeletePermission);
             }
             actionHtml+='</span>';
             html.push(actionHtml);
@@ -819,225 +862,137 @@
                 };
             }
         }
-        $(document).on("click","input[name='isActive']",async function(e) {
-            var ischeck=$(this).is(':checked');
-            var id=this.id;
-            try {
-                // Get item name for logging
-                const itemDoc = await database.collection('mart_items').doc(id).get();
-                let itemName = 'Unknown Item';
-                if (itemDoc.exists) {
-                    itemName = itemDoc.data().name || 'Unknown Item';
-                }
-
-                if(ischeck) {
-                    await database.collection('mart_items').doc(id).update({
-                        'publish': true
-                    });
-
-                    // Log activity
-                    if (typeof logActivity === 'function') {
-                        await logActivity('mart_items', 'published', 'Published mart item: ' + itemName);
+        $(document).on("click","input[name='isActive']",function(e) {
+            var $checkbox = $(this);
+            var ischeck = $checkbox.is(':checked');
+            var id = this.id;
+            
+            $.ajax({
+                url: '{{ route("mart-items.toggle-publish", ":id") }}'.replace(':id', id),
+                method: 'POST',
+                data: {
+                    publish: ischeck,
+                    _token: '{{ csrf_token() }}'
+                },
+                success: function(response) {
+                    if (response.success) {
+                        console.log('✅ Publish status updated successfully');
+                    } else {
+                        console.error('❌ Failed to update publish status');
+                        $checkbox.prop('checked', !ischeck);
                     }
-                } else {
-                    await database.collection('mart_items').doc(id).update({
-                        'publish': false
-                    });
-
-                    // Log activity
-                    if (typeof logActivity === 'function') {
-                        await logActivity('mart_items', 'unpublished', 'Unpublished mart item: ' + itemName);
-                    }
-                }
-            } catch (error) {
-                console.error('Error updating publish status:', error);
-                // Revert the checkbox state
-                $(this).prop('checked', !ischeck);
-            }
-        });
-        // Add isAvailable toggle logic
-        $(document).on("click","input[name='isAvailable']",async function(e) {
-            var ischeck=$(this).is(':checked');
-            var id=this.id.replace('isAvailable_','');
-            try {
-                // Get item name for logging
-                const itemDoc = await database.collection('mart_items').doc(id).get();
-                let itemName = 'Unknown Item';
-                if (itemDoc.exists) {
-                    itemName = itemDoc.data().name || 'Unknown Item';
-                }
-
-                if(ischeck) {
-                    await database.collection('mart_items').doc(id).update({
-                        'isAvailable': true
-                    });
-
-                    // Log activity
-                    if (typeof logActivity === 'function') {
-                        await logActivity('mart_items', 'made_available', 'Made mart item available: ' + itemName);
-                    }
-                } else {
-                    await database.collection('mart_items').doc(id).update({
-                        'isAvailable': false
-                    });
-
-                    // Log activity
-                    if (typeof logActivity === 'function') {
-                        await logActivity('mart_items', 'made_unavailable', 'Made mart item unavailable: ' + itemName);
-                    }
-                }
-            } catch (error) {
-                console.error('Error updating availability status:', error);
-                // Revert the checkbox state
-                $(this).prop('checked', !ischeck);
-            }
-        });
-        async function getStoreNameFunction(vendorId) {
-            var vendorName='';
-            await database.collection('vendors').doc(vendorId).get().then(async function(snapshot) {
-                if(snapshot.exists) {
-                    var vendorData = snapshot.data();
-                    // Check if it's a mart vendor
-                    if (vendorData.vType && (vendorData.vType.toLowerCase() === 'mart' || vendorData.vType === 'Mart')) {
-                        vendorName = vendorData.title;
-                        $('.restaurantTitle').html('{{trans("lang.mart_item_plural")}} - '+vendorName);
-                        if(vendorData.dine_in_active==true) {
-                            $(".dine_in_future").show();
-                        }
-                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('❌ Error updating publish status:', error);
+                    $checkbox.prop('checked', !ischeck);
                 }
             });
-            return vendorName;
-        }
-        $(document).on("click","a[name='food-delete']",async function(e) {
-            e.preventDefault(); // Prevent default link behavior
-            console.log('🔍 Delete button clicked for item ID:', this.id);
+        });
+        // Add isAvailable toggle logic
+        $(document).on("click","input[name='isAvailable']",function(e) {
+            var $checkbox = $(this);
+            var ischeck = $checkbox.is(':checked');
+            var id = this.id.replace('isAvailable_','');
             
-            var id=this.id;
+            $.ajax({
+                url: '{{ route("mart-items.toggle-availability", ":id") }}'.replace(':id', id),
+                method: 'POST',
+                data: {
+                    isAvailable: ischeck,
+                    _token: '{{ csrf_token() }}'
+                },
+                success: function(response) {
+                    if (response.success) {
+                        console.log('✅ Availability status updated successfully');
+                    } else {
+                        console.error('❌ Failed to update availability status');
+                        $checkbox.prop('checked', !ischeck);
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('❌ Error updating availability status:', error);
+                    $checkbox.prop('checked', !ischeck);
+                }
+            });
+        });
+        // Delete single item
+        $(document).on("click","a[name='food-delete']",function(e) {
+            e.preventDefault();
+            var id = this.id;
             
-            // Add confirmation dialog
             if (!confirm('Are you sure you want to delete this mart item? This action cannot be undone.')) {
                 return;
             }
             
-            try {
-                console.log('🔍 Starting deletion process for item:', id);
-                
-                // Get item name before deletion for logging
-                const itemDoc = await database.collection('mart_items').doc(id).get();
-                let itemName = 'Unknown Item';
-                if (itemDoc.exists) {
-                    itemName = itemDoc.data().name || 'Unknown Item';
-                    console.log('🔍 Item found:', itemName);
-                } else {
-                    console.error('❌ Item not found in database');
-                    alert('Item not found in database.');
-                    return;
-                }
-
-                console.log('🔍 Calling optimized delete for mart item...');
-                await deleteMartItemWithImage(id);
-                console.log('✅ Document and images deleted successfully');
-
-                // Log activity
-                if (typeof logActivity === 'function') {
-                    console.log('🔍 Logging activity...');
-                    await logActivity('mart_items', 'deleted', 'Deleted mart item: ' + itemName);
-                    console.log('✅ Activity logged successfully');
-                } else {
-                    console.warn('⚠️ logActivity function not available');
-                }
-
-                console.log('🔍 Reloading page...');
-                window.location.reload();
-            } catch (error) {
-                console.error('❌ Error deleting item:', error);
-                alert('Error deleting item: ' + error.message + '. Please try again.');
-            }
-        });
-
-        // Optimized delete function for mart items - skips expensive reference checking
-        const deleteMartItemWithImage = async (id) => {
-            const docRef = database.collection('mart_items').doc(id);
-            try {
-                const doc = await docRef.get();
-                if (!doc.exists) {
-                    console.log("No mart item found for deletion");
-                    return;
-                }
-
-                const data = doc.data();
-                
-                // Delete the photo directly without reference checking (mart items typically don't share images)
-                if (data.photo) {
-                    console.log('🗑️ Deleting mart item image:', data.photo);
-                    try {
-                        // Direct deletion without reference checking for better performance
-                        await deleteImageFromBucket(data.photo);
-                        console.log('✅ Image deleted successfully');
-                    } catch (imageError) {
-                        console.warn('⚠️ Error deleting image (continuing with document deletion):', imageError);
+            $.ajax({
+                url: '{{ route("mart-items.delete", ":id") }}'.replace(':id', id),
+                method: 'DELETE',
+                data: {
+                    _token: '{{ csrf_token() }}'
+                },
+                success: function(response) {
+                    if (response.success) {
+                        console.log('✅ Item deleted successfully');
+                        window.location.reload();
+                    } else {
+                        console.error('❌ Failed to delete item');
+                        alert('Failed to delete item: ' + response.message);
                     }
+                },
+                error: function(xhr, status, error) {
+                    console.error('❌ Error deleting item:', error);
+                    alert('Error deleting item. Please try again.');
                 }
-
-                // Delete the Firestore document
-                await docRef.delete();
-                console.log("Mart item document deleted successfully.");
-                
-            } catch (error) {
-                console.error("Error deleting mart item:", error);
-                throw error;
-            }
-        };
-
-        $(document.body).on('change','#selected_search',function() {
-            if(jQuery(this).val()=='category') {
-                var ref_category=database.collection('mart_categories');
-                ref_category.get().then(async function(snapshots) {
-                    snapshots.docs.forEach((listval) => {
-                        var data=listval.data();
-                        $('#category_search_dropdown').append($("<option></option").attr("value",data.id).text(data.title));
-                    });
-                });
-                jQuery('#search').hide();
-                jQuery('#category_search_dropdown').show();
-            } else {
-                jQuery('#search').show();
-                jQuery('#category_search_dropdown').hide();
-            }
+            });
         });
+
+        // Select/Deselect all checkboxes
         $('#select-all').change(function() {
             var isChecked=$(this).prop('checked');
             $('input[type="checkbox"][name="record"]').prop('checked',isChecked);
         });
-        $('#deleteAll').click(async function() {
-            if(confirm("{{trans('lang.selected_delete_alert')}}")) {
-                jQuery("#data-table_processing").show();
-                var deletedItems = [];
-
-                // Loop through all selected records and delete them
-                for (const element of $('input[type="checkbox"][name="record"]:checked')) {
-                    var id = $(element).attr('dataId');
-                    try {
-                        // Get item name before deletion for logging
-                        const itemDoc = await database.collection('mart_items').doc(id).get();
-                        if (itemDoc.exists) {
-                            deletedItems.push(itemDoc.data().name || 'Unknown Item');
-                        }
-
-                        await deleteMartItemWithImage(id);
-                    } catch (error) {
-                        console.error('Error deleting item:', error);
-                    }
-                }
-
-                // Log bulk delete activity
-                if (typeof logActivity === 'function' && deletedItems.length > 0) {
-                    await logActivity('mart_items', 'bulk_deleted', 'Bulk deleted mart items: ' + deletedItems.join(', '));
-                }
-
-                window.location.reload();
+        
+        // Bulk delete
+        $('#deleteAll').click(function() {
+            if (!confirm("{{trans('lang.selected_delete_alert')}}")) {
+                return;
             }
+            
+            var ids = [];
+            $('input[type="checkbox"][name="record"]:checked').each(function() {
+                ids.push($(this).attr('dataId'));
+            });
+            
+            if (ids.length === 0) {
+                alert('Please select at least one item to delete');
+                return;
+            }
+            
+            jQuery("#data-table_processing").show();
+            
+            $.ajax({
+                url: '{{ route("mart-items.bulk-delete") }}',
+                method: 'POST',
+                data: {
+                    ids: ids,
+                    _token: '{{ csrf_token() }}'
+                },
+                success: function(response) {
+                    jQuery("#data-table_processing").hide();
+                    if (response.success) {
+                        console.log('✅ Items deleted successfully');
+                        window.location.reload();
+                    } else {
+                        console.error('❌ Failed to delete items');
+                        alert('Failed to delete items: ' + response.message);
+                    }
+                },
+                error: function(xhr, status, error) {
+                    jQuery("#data-table_processing").hide();
+                    console.error('❌ Error deleting items:', error);
+                    alert('Error deleting items. Please try again.');
+                }
+            });
         });
 
         // Inline editing functionality for prices - using backend validation
@@ -1165,132 +1120,5 @@
             });
         });
 
-        // Inline editing functionality for prices - using backend validation
-        $(document).on('click', '.editable-price', function() {
-            var $this = $(this);
-            var currentValue = $this.data('value');
-            var field = $this.data('field');
-            var id = $this.data('id');
-
-            // Create input field
-            var input = $('<input>', {
-                type: 'number',
-                step: '0.01',
-                min: '0',
-                class: 'form-control form-control-sm',
-                value: currentValue,
-                style: 'width: 80px; display: inline-block;'
-            });
-
-            // Replace span with input
-            $this.hide();
-            $this.after(input);
-            input.focus();
-
-            // Handle save on enter or blur
-            function saveValue() {
-                var newValue = parseFloat(input.val());
-                if (isNaN(newValue) || newValue < 0) {
-                    newValue = 0;
-                }
-
-                // Remove input and show span
-                input.remove();
-                $this.show();
-
-                // Show loading indicator
-                $this.addClass('text-info');
-                $this.text('Updating...');
-
-                // Send AJAX request to backend for proper validation and data consistency
-                $.ajax({
-                    url: '{{ route("mart-items.inlineUpdate", ":id") }}'.replace(':id', id),
-                    method: 'PATCH',
-                    data: {
-                        field: field,
-                        value: newValue,
-                        _token: '{{ csrf_token() }}'
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            // Update the data attribute
-                            $this.data('value', newValue);
-
-                            // Update the display
-                            var displayValue = newValue.toFixed(decimal_degits);
-                            if (currencyAtRight) {
-                                $this.text(displayValue + currentCurrency);
-                            } else {
-                                $this.text(currentCurrency + displayValue);
-                            }
-
-                            // Show success indicator
-                            $this.removeClass('text-info').addClass('text-success');
-                            setTimeout(function() {
-                                $this.removeClass('text-success');
-                            }, 1000);
-
-                            // If there's a message about discount price being reset, show it
-                            if (response.message && response.message.includes('discount price was reset')) {
-                                // Find and update the discount price cell if it exists
-                                var discountCell = $this.closest('tr').find('.editable-price[data-field="disPrice"]');
-                                if (discountCell.length > 0) {
-                                    discountCell.data('value', 0);
-                                    discountCell.text('-');
-                                    discountCell.removeClass('text-green').addClass('text-muted');
-                                }
-                            }
-
-                            // Reload the table to ensure data consistency
-                            $('#foodTable').DataTable().ajax.reload(null, false);
-                        } else {
-                            // Show error message
-                            alert('Update failed: ' + response.message);
-                            // Revert to original value
-                            var originalValue = currentValue;
-                            var displayValue = originalValue.toFixed(decimal_degits);
-                            if (currencyAtRight) {
-                                $this.text(displayValue + currentCurrency);
-                            } else {
-                                $this.text(currentCurrency + displayValue);
-                            }
-                            $this.removeClass('text-info');
-                        }
-                    },
-                    error: function(xhr) {
-                        var errorMessage = 'Update failed';
-                        if (xhr.responseJSON && xhr.responseJSON.message) {
-                            errorMessage = xhr.responseJSON.message;
-                        }
-                        alert(errorMessage);
-
-                        // Revert to original value
-                        var originalValue = currentValue;
-                        var displayValue = originalValue.toFixed(decimal_degits);
-                        if (currencyAtRight) {
-                            $this.text(displayValue + currentCurrency);
-                        } else {
-                            $this.text(currentCurrency + displayValue);
-                        }
-                        $this.removeClass('text-info');
-                    }
-                });
-            }
-
-            input.on('blur', saveValue);
-            input.on('keypress', function(e) {
-                if (e.which === 13) { // Enter key
-                    saveValue();
-                }
-            });
-
-            // Handle escape key
-            input.on('keydown', function(e) {
-                if (e.which === 27) { // Escape key
-                    input.remove();
-                    $this.show();
-                }
-            });
-        });
     </script>
 @endsection

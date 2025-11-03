@@ -210,18 +210,54 @@ Route::middleware(['permission:mart-items,mart-items'])->group(function () {
     Route::get('/mart-items/download-template', [App\Http\Controllers\MartItemController::class, 'downloadTemplate'])->name('mart-items.download-template');
 });
 
-Route::middleware(['permission:mart-items,mart-items'])->group(function () {
+// IMPORTANT: Specific /mart-items/* routes MUST come BEFORE /mart-items/{id}
+// Mart Items API Routes (SQL Database) - Accessible with auth
+Route::middleware(['auth'])->group(function () {
+    Route::get('/mart-items/data', [App\Http\Controllers\MartItemController::class, 'getMartItemsData'])->name('mart-items.data');
+    Route::get('/mart-items/categories', [App\Http\Controllers\MartItemController::class, 'getCategories'])->name('mart-items.categories');
+    Route::get('/mart-items/subcategories', [App\Http\Controllers\MartItemController::class, 'getSubcategories'])->name('mart-items.subcategories');
+    Route::get('/mart-items/brands', [App\Http\Controllers\MartItemController::class, 'getBrands'])->name('mart-items.brands');
+    Route::get('/mart-items/vendors', [App\Http\Controllers\MartItemController::class, 'getVendors'])->name('mart-items.vendors');
+    Route::get('/mart-items/placeholder-image', [App\Http\Controllers\MartItemController::class, 'getPlaceholderImage'])->name('mart-items.placeholder-image');
+    Route::get('/mart-items/currency-settings', [App\Http\Controllers\MartItemController::class, 'getCurrencySettings'])->name('mart-items.currency-settings');
+});
+
+// Mart Items EDIT Routes - MUST come before wildcard /mart-items/{id}
+Route::middleware(['auth'])->group(function () {
+    Route::get('/mart-items/edit/{id}', [App\Http\Controllers\MartItemController::class, 'edit'])->name('mart-items.edit');
+    Route::post('/mart-items/update/{id}', [App\Http\Controllers\MartItemController::class, 'update'])->name('mart-items.update');
+    Route::patch('/mart-items/inline-update/{id}', [App\Http\Controllers\MartItemController::class, 'inlineUpdate'])->name('mart-items.inlineUpdate');
+    Route::get('/mart-items/{id}/data', [App\Http\Controllers\MartItemController::class, 'getMartItemById'])->name('mart-items.get-by-id');
+});
+
+// Mart Items CREATE Routes
+Route::middleware(['auth'])->group(function () {
+    Route::get('/mart-item/create', [App\Http\Controllers\MartItemController::class, 'create'])->name('mart-items.create');
+    Route::get('/mart-item/create/{id}', [App\Http\Controllers\MartItemController::class, 'create']);
+    Route::post('/mart-items/store', [App\Http\Controllers\MartItemController::class, 'store'])->name('mart-items.store');
+});
+
+// Mart Items ACTION Routes (toggle, delete, etc.)
+Route::middleware(['auth'])->group(function () {
+    Route::post('/mart-items/{id}/toggle-publish', [App\Http\Controllers\MartItemController::class, 'togglePublish'])->name('mart-items.toggle-publish');
+    Route::post('/mart-items/{id}/toggle-availability', [App\Http\Controllers\MartItemController::class, 'toggleAvailability'])->name('mart-items.toggle-availability');
+    Route::delete('/mart-items/{id}', [App\Http\Controllers\MartItemController::class, 'deleteMartItem'])->name('mart-items.delete');
+    Route::post('/mart-items/bulk-delete', [App\Http\Controllers\MartItemController::class, 'bulkDelete'])->name('mart-items.bulk-delete');
+});
+
+// Wildcard route MUST come LAST - This matches /mart-items/{vendorID} for listing
+Route::middleware(['auth'])->group(function () {
     Route::get('/mart-items/{id}', [App\Http\Controllers\MartItemController::class, 'index'])->name('marts.mart-items');
 });
 
-Route::middleware(['permission:mart-items,mart-items.edit'])->group(function () {
-    Route::get('/mart-items/edit/{id}', [App\Http\Controllers\MartItemController::class, 'edit'])->name('mart-items.edit');
-    Route::patch('/mart-items/inline-update/{id}', [App\Http\Controllers\MartItemController::class, 'inlineUpdate'])->name('mart-items.inlineUpdate');
-});
-
-Route::middleware(['permission:mart-items,mart-items.create'])->group(function () {
-    Route::get('/mart-item/create', [App\Http\Controllers\MartItemController::class, 'create'])->name('mart-items.create');
-    Route::get('/mart-item/create/{id}', [App\Http\Controllers\MartItemController::class, 'create']);
+// Settings API Routes (SQL Database) - Replace Firebase calls
+Route::middleware(['auth'])->group(function () {
+    Route::get('/api/settings/all', [App\Http\Controllers\Api\SettingsApiController::class, 'getAllSettings'])->name('api.settings.all');
+    Route::get('/api/settings/global', [App\Http\Controllers\Api\SettingsApiController::class, 'getGlobalSettings'])->name('api.settings.global');
+    Route::get('/api/settings/currency', [App\Http\Controllers\Api\SettingsApiController::class, 'getCurrencySettings'])->name('api.settings.currency');
+    Route::get('/api/settings/restaurant', [App\Http\Controllers\Api\SettingsApiController::class, 'getRestaurantSettings'])->name('api.settings.restaurant');
+    Route::get('/api/settings/AdminCommission', [App\Http\Controllers\Api\SettingsApiController::class, 'getAdminCommission'])->name('api.settings.admin-commission');
+    Route::get('/api/settings/driver', [App\Http\Controllers\Api\SettingsApiController::class, 'getDriverSettings'])->name('api.settings.driver');
 });
 
 Route::middleware(['permission:orders,orders'])->group(function () {
@@ -284,12 +320,33 @@ Route::middleware(['permission:mart-categories,mart-categories.create'])->group(
 Route::post('/mart-categories/import', [App\Http\Controllers\MartCategoryController::class, 'import'])->name('mart-categories.import');
 Route::get('/mart-categories/download-template', [App\Http\Controllers\MartCategoryController::class, 'downloadTemplate'])->name('mart-categories.download-template');
 
+// Mart Categories API Routes (for AJAX)
+// IMPORTANT: Specific routes must come BEFORE wildcard {id} routes
+Route::post('/api/mart-categories/get-data', [App\Http\Controllers\MartCategoryController::class, 'getData'])->name('api.mart-categories.get-data');
+Route::post('/api/mart-categories/store', [App\Http\Controllers\MartCategoryController::class, 'store'])->name('api.mart-categories.store');
+Route::post('/api/mart-categories/bulk-delete', [App\Http\Controllers\MartCategoryController::class, 'bulkDelete'])->name('api.mart-categories.bulk-delete');
+// Wildcard routes must come AFTER specific routes
+Route::get('/api/mart-categories/{id}', [App\Http\Controllers\MartCategoryController::class, 'getCategory'])->name('api.mart-categories.get');
+Route::post('/api/mart-categories/{id}/update', [App\Http\Controllers\MartCategoryController::class, 'update'])->name('api.mart-categories.update');
+Route::delete('/api/mart-categories/{id}', [App\Http\Controllers\MartCategoryController::class, 'destroy'])->name('api.mart-categories.destroy');
+Route::post('/api/mart-categories/{id}/toggle-publish', [App\Http\Controllers\MartCategoryController::class, 'togglePublish'])->name('api.mart-categories.toggle-publish');
+
 // Mart Sub-Categories Routes (Temporary - without permissions for testing)
 Route::get('/mart-categories/{category_id}/subcategories', [App\Http\Controllers\MartSubcategoryController::class, 'index'])->name('mart-subcategories.index');
 Route::get('/mart-categories/{category_id}/subcategories/create', [App\Http\Controllers\MartSubcategoryController::class, 'create'])->name('mart-subcategories.create');
 Route::get('/mart-subcategories/{id}/edit', [App\Http\Controllers\MartSubcategoryController::class, 'edit'])->name('mart-subcategories.edit');
 Route::post('/mart-subcategories/import', [App\Http\Controllers\MartSubcategoryController::class, 'import'])->name('mart-subcategories.import');
 Route::get('/mart-subcategories/download-template', [App\Http\Controllers\MartSubcategoryController::class, 'downloadTemplate'])->name('mart-subcategories.download-template');
+
+// Mart Sub-Categories API Routes (for AJAX)
+Route::post('/api/mart-subcategories/{category_id}/get-data', [App\Http\Controllers\MartSubcategoryController::class, 'getData'])->name('api.mart-subcategories.get-data');
+Route::get('/api/mart-subcategories/{id}', [App\Http\Controllers\MartSubcategoryController::class, 'getSubcategory'])->name('api.mart-subcategories.get');
+Route::get('/api/mart-categories/{category_id}/info', [App\Http\Controllers\MartSubcategoryController::class, 'getParentCategory'])->name('api.mart-categories.info');
+Route::post('/api/mart-subcategories/store', [App\Http\Controllers\MartSubcategoryController::class, 'store'])->name('api.mart-subcategories.store');
+Route::post('/api/mart-subcategories/{id}/update', [App\Http\Controllers\MartSubcategoryController::class, 'update'])->name('api.mart-subcategories.update');
+Route::delete('/api/mart-subcategories/{id}', [App\Http\Controllers\MartSubcategoryController::class, 'destroy'])->name('api.mart-subcategories.destroy');
+Route::post('/api/mart-subcategories/bulk-delete', [App\Http\Controllers\MartSubcategoryController::class, 'bulkDelete'])->name('api.mart-subcategories.bulk-delete');
+Route::post('/api/mart-subcategories/{id}/toggle-publish', [App\Http\Controllers\MartSubcategoryController::class, 'togglePublish'])->name('api.mart-subcategories.toggle-publish');
 
 // Original routes with permissions (commented out for now)
 /*
@@ -694,6 +751,9 @@ Route::middleware(['permission:review-attribute,reviewattributes.create'])->grou
     Route::get('/reviewattributes/create', [App\Http\Controllers\ReviewAttributeController::class, 'create'])->name('reviewattributes.create');
 });
 
+// Review Attributes API Route
+Route::get('/api/review-attributes', [App\Http\Controllers\ReviewAttributeController::class, 'getAll'])->name('api.review-attributes.get-all');
+
 Route::middleware(['permission:footer,footerTemplate'])->group(function () {
     Route::get('footerTemplate', [App\Http\Controllers\SettingsController::class, 'footerTemplate'])->name('footerTemplate');
 });
@@ -812,6 +872,30 @@ Route::middleware(['permission:zone,zone.create'])->group(function () {
 Route::middleware(['permission:zone,zone.edit'])->group(function () {
     Route::get('/zone/edit/{id}', [App\Http\Controllers\ZoneController::class, 'edit'])->name('zone.edit');
 });
+
+// Zone API routes for SQL database
+Route::middleware(['permission:zone,zone.list'])->group(function () {
+    Route::get('/zone/data', [App\Http\Controllers\ZoneController::class, 'getZonesData'])->name('zone.data');
+});
+
+Route::middleware(['permission:zone,zone'])->group(function () {
+    Route::get('/zone/{id}/data', [App\Http\Controllers\ZoneController::class, 'getZoneById'])->name('zone.getById');
+});
+
+Route::middleware(['permission:zone,zone.create'])->group(function () {
+    Route::post('/zone', [App\Http\Controllers\ZoneController::class, 'store'])->name('zone.store');
+});
+
+Route::middleware(['permission:zone,zone.edit'])->group(function () {
+    Route::put('/zone/{id}', [App\Http\Controllers\ZoneController::class, 'update'])->name('zone.update');
+    Route::post('/zone/{id}/toggle-status', [App\Http\Controllers\ZoneController::class, 'toggleStatus'])->name('zone.toggle-status');
+});
+
+Route::middleware(['permission:zone,zone.delete'])->group(function () {
+    Route::delete('/zone/{id}', [App\Http\Controllers\ZoneController::class, 'destroy'])->name('zone.delete');
+    Route::post('/zone/delete-multiple', [App\Http\Controllers\ZoneController::class, 'deleteMultiple'])->name('zone.delete-multiple');
+});
+
 Route::middleware(['permission:documents,documents.edit'])->group(function () {
     Route::get('/documents/edit/{id}', [App\Http\Controllers\DocumentController::class, 'edit'])->name('documents.edit');
 });
@@ -1156,6 +1240,9 @@ Route::middleware(['permission:review-attribute,reviewattributes.edit'])->group(
 Route::middleware(['permission:review-attribute,reviewattributes.create'])->group(function () {
     Route::get('/reviewattributes/create', [App\Http\Controllers\ReviewAttributeController::class, 'create'])->name('reviewattributes.create');
 });
+
+// Review Attributes API Route
+Route::get('/api/review-attributes', [App\Http\Controllers\ReviewAttributeController::class, 'getAll'])->name('api.review-attributes.get-all');
 
 Route::middleware(['permission:footer,footerTemplate'])->group(function () {
     Route::get('footerTemplate', [App\Http\Controllers\SettingsController::class, 'footerTemplate'])->name('footerTemplate');

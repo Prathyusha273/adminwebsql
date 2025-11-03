@@ -702,8 +702,6 @@
     <script>
         // Cache-busting comment: ID field fix - {{ now()->format('Y-m-d H:i:s') }}
         var id = "<?php echo $id;?>";
-        var database = firebase.firestore();
-        var ref = database.collection('mart_items').doc(id);
         var storageRef = firebase.storage().ref('images');
         var storage = firebase.storage();
         var photo = "";
@@ -814,115 +812,119 @@
                 $('[id="variant_' + variant + '_url"]').val('');
             });
             jQuery("#data-table_processing").show();
-            ref.get().then(async function (snapshots) {
-                var product = snapshots.data();
-                // Fetch vendors with vType: 'mart' (case-insensitive)
-                database.collection('vendors').get().then(async function (snapshots) {
-                    console.log('🔍 Edit page - Found ' + snapshots.docs.length + ' total vendors');
-                    snapshots.docs.forEach((listval) => {
-                        var data = listval.data();
-                        // Check for mart vendors (case-insensitive)
-                        if (data.vType && (data.vType.toLowerCase() === 'mart' || data.vType === 'Mart')) {
-                            console.log('📋 Edit page - Mart Vendor:', data.title, 'ID:', data.id, 'vType:', data.vType);
-                            restaurant_list.push(data);
-                            if (data.id == product.vendorID) {
-                                $('#food_restaurant').append($("<option selected></option>")
-                                    .attr("value", data.id)
-                                    .text(data.title));
-                            } else {
-                                $('#food_restaurant').append($("<option></option>")
-                                    .attr("value", data.id)
-                                    .text(data.title));
-                            }
+            
+            // Load item data from SQL database via AJAX
+            $.ajax({
+                url: '/mart-items/' + id + '/data',
+                method: 'GET',
+                success: async function(product) {
+                    console.log('✅ Loaded item from SQL:', product);
+                    
+                    // Fetch vendors from SQL
+                    $.ajax({
+                        url: '{{ route("mart-items.vendors") }}',
+                        method: 'GET',
+                        success: async function(vendors) {
+                            console.log('✅ Loaded vendors from SQL:', vendors.length);
+                            vendors.forEach((data) => {
+                                console.log('📋 Edit page - Mart Vendor:', data.title, 'ID:', data.id);
+                                restaurant_list.push(data);
+                                if (data.id == product.vendorID) {
+                                    $('#food_restaurant').append($("<option selected></option>")
+                                        .attr("value", data.id)
+                                        .text(data.title));
+                                } else {
+                                    $('#food_restaurant').append($("<option></option>")
+                                        .attr("value", data.id)
+                                        .text(data.title));
+                                }
+                            });
+                        },
+                        error: function(xhr) {
+                            console.error('❌ Error fetching vendors:', xhr);
                         }
                     });
-                }).catch(function(error) {
-                    console.error('❌ Edit page - Error fetching vendors:', error);
-                });
-                await database.collection('mart_categories').where('publish', '==', true).get().then(async function (snapshots) {
-                    snapshots.docs.forEach((listval) => {
-                        var data = listval.data();
-                        categories_list.push(data);
-                        if (data.id == product.categoryID) {
-                            $('#food_category').append($("<option selected></option>")
-                                .attr("value", data.id)
-                                .text(data.title));
-                        } else {
-                            $('#food_category').append($("<option></option>")
-                                .attr("value", data.id)
-                                .text(data.title));
+                    // Fetch categories from SQL
+                    $.ajax({
+                        url: '{{ route("mart-items.categories") }}',
+                        method: 'GET',
+                        async: false,
+                        success: function(categories) {
+                            categories.forEach((data) => {
+                                categories_list.push(data);
+                                if (data.id == product.categoryID) {
+                                    $('#food_category').append($("<option selected></option>")
+                                        .attr("value", data.id)
+                                        .text(data.title));
+                                } else {
+                                    $('#food_category').append($("<option></option>")
+                                        .attr("value", data.id)
+                                        .text(data.title));
+                                }
+                                updateSelectedFoodCategoryTags();
+                            });
                         }
-                        updateSelectedFoodCategoryTags();
-                    })
-                });
-
-                // Load subcategories - handle both array and single value formats
-                await database.collection('mart_subcategories').where('publish', '==', true).get().then(async function (snapshots) {
-                    snapshots.docs.forEach((listval) => {
-                        var data = listval.data();
-                        // Handle subcategoryID as array (matching sample document structure)
-                        var selectedSubcategories = Array.isArray(product.subcategoryID) ? product.subcategoryID : (product.subcategoryID ? [product.subcategoryID] : []);
-
-                        if (selectedSubcategories.includes(data.id)) {
-                            $('#food_subcategory').append($("<option selected></option>")
-                                .attr("value", data.id)
-                                .attr("data-parent", data.parent_category_id)
-                                .text(data.title));
-                        } else {
-                            $('#food_subcategory').append($("<option></option>")
-                                .attr("value", data.id)
-                                .attr("data-parent", data.parent_category_id)
-                                .text(data.title));
-                        }
-                        updateSelectedSubcategoryTags();
-                    })
-                });
-
-                // Load brands
-                await database.collection('brands').where('status', '==', true).get().then(async function (snapshots) {
-                    snapshots.docs.forEach((listval) => {
-                        var data = listval.data();
-                        if (product.brandID && product.brandID === data.id) {
-                            $('#brand_select').append($("<option selected></option>")
-                                .attr("value", data.id)
-                                .text(data.name));
-                        } else {
-                            $('#brand_select').append($("<option></option>")
-                                .attr("value", data.id)
-                                .text(data.name));
-                        }
-                    })
-                });
-                var selected_attributes = [];
-                if (product.item_attribute != null) {
-                    $("#attributes_div").show();
-                    $.each(product.item_attribute.attributes, function (index, attribute) {
-                        selected_attributes.push(attribute.attribute_id);
                     });
-                    $('#attributes').val(JSON.stringify(product.item_attribute.attributes));
-                    $('#variants').val(JSON.stringify(product.item_attribute.variants));
-                }
-                var attributes = database.collection('vendor_attributes');
-                attributes.get().then(async function (snapshots) {
-                    snapshots.docs.forEach((listval) => {
-                        var data = listval.data();
-                        attributes_list.push(data);
-                        var selected = '';
-                        if ($.inArray(data.id, selected_attributes) !== -1) {
-                            var selected = 'selected="selected"';
+
+                    // Load subcategories from SQL
+                    $.ajax({
+                        url: '{{ route("mart-items.subcategories") }}',
+                        method: 'GET',
+                        async: false,
+                        success: function(subcategories) {
+                            console.log('🔍 Edit page - Found ' + subcategories.length + ' subcategories from SQL');
+                            subcategories.forEach((data) => {
+                                console.log('📋 Edit page - Subcategory:', data.title, 'ID:', data.id, 'Parent:', data.categoryID);
+                                if (product.subcategoryID && product.subcategoryID === data.id) {
+                                    $('#food_subcategory').append($("<option selected></option>")
+                                        .attr("value", data.id)
+                                        .attr("data-parent", data.categoryID || data.parent_category_id)
+                                        .text(data.title));
+                                } else {
+                                    $('#food_subcategory').append($("<option></option>")
+                                        .attr("value", data.id)
+                                        .attr("data-parent", data.categoryID || data.parent_category_id)
+                                        .text(data.title));
+                                }
+                            });
+                            console.log('✅ Edit page - Loaded ' + subcategories.length + ' subcategories from SQL');
+                        },
+                        error: function(xhr, status, error) {
+                            console.error('❌ Edit page - Error fetching subcategories:', error);
                         }
-                        var option = '<option value="' + data.id + '" ' + selected + '>' + data.title + '</option>';
-                        $('#item_attribute').append(option);
                     });
-                    $("#item_attribute").show().chosen({"placeholder_text": "{{trans('lang.select_attribute')}}"});
-                    if (product.item_attribute) {
-                        $("#item_attribute").attr("onChange", "selectAttribute('" + btoa(JSON.stringify(product.item_attribute)) + "')");
-                        selectAttribute(btoa(JSON.stringify(product.item_attribute)));
-                    } else {
-                        $("#item_attribute").attr("onChange", "selectAttribute()");
-                        selectAttribute();
+
+                    // Load brands from SQL
+                    $.ajax({
+                        url: '{{ route("mart-items.brands") }}',
+                        method: 'GET',
+                        async: false,
+                        success: function(brands) {
+                            brands.forEach((data) => {
+                                if (product.brandID && product.brandID === data.id) {
+                                    $('#brand_select').append($("<option selected></option>")
+                                        .attr("value", data.id)
+                                        .text(data.name));
+                                } else {
+                                    $('#brand_select').append($("<option></option>")
+                                        .attr("value", data.id)
+                                        .text(data.name));
+                                }
+                            });
+                        }
+                    });
+                    var selected_attributes = [];
+                    if (product.item_attribute != null) {
+                        $("#attributes_div").show();
+                        $.each(product.item_attribute.attributes, function (index, attribute) {
+                            selected_attributes.push(attribute.attribute_id);
+                        });
+                        $('#attributes').val(JSON.stringify(product.item_attribute.attributes));
+                        $('#variants').val(JSON.stringify(product.item_attribute.variants));
                     }
-                });
+                    // TODO: Convert vendor_attributes to SQL if needed
+                    // For now, attributes remain with Firebase
+                    // $("#item_attribute").show().chosen({"placeholder_text": "{{trans('lang.select_attribute')}}"});
                 if (product.hasOwnProperty('product_specification')) {
                     product_specification = product.product_specification;
                     if (product_specification != null && product_specification != "") {
@@ -994,61 +996,42 @@
                     addOnesTitle = product.addOnsTitle;
                     addOnesPrice = product.addOnsPrice;
                 }
-                if (product.hasOwnProperty('isAvailable') && product.isAvailable) {
-                    $(".food_is_available").prop('checked', true);
-                }
+                    if (product.hasOwnProperty('isAvailable') && product.isAvailable) {
+                        $(".food_is_available").prop('checked', true);
+                    }
 
-                // Load enhanced filter fields - matching sample document structure
-                if (product.hasOwnProperty('isSpotlight') && product.isSpotlight) {
-                    $("#isSpotlight").prop('checked', true);
-                }
-                if (product.hasOwnProperty('isStealOfMoment') && product.isStealOfMoment) {
-                    $("#isStealOfMoment").prop('checked', true);
-                }
-                if (product.hasOwnProperty('isFeature') && product.isFeature) {
-                    $("#isFeature").prop('checked', true);
-                }
-                if (product.hasOwnProperty('isTrending') && product.isTrending) {
-                    $("#isTrending").prop('checked', true);
-                }
-                if (product.hasOwnProperty('isNew') && product.isNew) {
-                    $("#isNew").prop('checked', true);
-                }
-                if (product.hasOwnProperty('isBestSeller') && product.isBestSeller) {
-                    $("#isBestSeller").prop('checked', true);
-                }
-                if (product.hasOwnProperty('isSeasonal') && product.isSeasonal) {
-                    $("#isSeasonal").prop('checked', true);
-                }
+                    // Load enhanced filter fields - matching sample document structure
+                    if (product.hasOwnProperty('isSpotlight') && product.isSpotlight) {
+                        $("#isSpotlight").prop('checked', true);
+                    }
+                    if (product.hasOwnProperty('isStealOfMoment') && product.isStealOfMoment) {
+                        $("#isStealOfMoment").prop('checked', true);
+                    }
+                    if (product.hasOwnProperty('isFeature') && product.isFeature) {
+                        $("#isFeature").prop('checked', true);
+                    }
+                    if (product.hasOwnProperty('isTrending') && product.isTrending) {
+                        $("#isTrending").prop('checked', true);
+                    }
+                    if (product.hasOwnProperty('isNew') && product.isNew) {
+                        $("#isNew").prop('checked', true);
+                    }
+                    if (product.hasOwnProperty('isBestSeller') && product.isBestSeller) {
+                        $("#isBestSeller").prop('checked', true);
+                    }
+                    if (product.hasOwnProperty('isSeasonal') && product.isSeasonal) {
+                        $("#isSeasonal").prop('checked', true);
+                    }
 
-                // Load existing options if any - moved here after product data is loaded
-                console.log('🔍 Checking for options in product:', product);
-                console.log('🔍 Product has_options:', product?.has_options);
-                console.log('🔍 Product options:', product?.options);
-                console.log('🔍 Options length:', product?.options?.length);
-
-                if (product && product.has_options && product.options && product.options.length > 0) {
-                    console.log('✅ Loading existing options...');
-                    $('.has_options').prop('checked', true);
-                    $('#options_config').show();
-                    $('#options_fieldset').show();
-                    console.log('🔧 Options fieldset shown:', $('#options_fieldset').is(':visible'));
-                    console.log('🔧 Options config shown:', $('#options_config').is(':visible'));
-
-                    // Load existing options
-                    product.options.forEach((option, index) => {
-                        console.log('📋 Loading option:', option);
-                        loadExistingOption(option, index + 1);
-                    });
-
-                    updateOptionsSummary();
-                    updateDefaultOptionSelect();
-                } else {
-                    console.log('❌ No options found or conditions not met');
+                    // Hide loading indicator
+                    jQuery("#data-table_processing").hide();
+                },
+                error: function(xhr, status, error) {
+                    console.error('❌ Error loading item data:', error);
+                    jQuery("#data-table_processing").hide();
+                    alert('Error loading item data: ' + (xhr.responseJSON?.message || error));
                 }
-
-                jQuery("#data-table_processing").hide();
-            })
+            });
 
             // Random review generation functions
             function generateRandomReviewCount() {
@@ -1323,7 +1306,7 @@
                             'isBestSeller': Boolean(isBestSeller), // Boolean format to match create.blade.php
                             'isSeasonal': Boolean(isSeasonal), // Boolean format to match create.blade.php
 
-                            'updated_at': firebase.firestore.FieldValue.serverTimestamp()
+                            // 'updated_at' will be set by SQL automatically
                         };
 
                         // Handle options
@@ -1415,39 +1398,54 @@
                         console.log('🔍 ID field being set in updateData:', updateData['id']);
                         console.log('🔍 Full updateData keys:', Object.keys(updateData));
 
-                        // SINGLE PHOTO FIELD APPROACH - Direct save without storeImageData wrapper
-                        database.collection('mart_items').doc(id).update(updateData).then(async function (result) {
-                            console.log('✅ Mart item updated successfully with ID:', id);
-                            console.log('🔍 Now logging activity...');
+                        // Convert arrays/objects to JSON strings for SQL
+                        updateData.options = JSON.stringify(updateData.options || []);
+                        updateData.addOnsTitle = JSON.stringify(updateData.addOnsTitle || []);
+                        updateData.addOnsPrice = JSON.stringify(updateData.addOnsPrice || []);
+                        updateData.product_specification = JSON.stringify(updateData.product_specification || {});
 
-                            try {
-                                if (typeof logActivity === 'function') {
-                                    console.log('🔍 Calling logActivity for mart item update...');
-                                    await logActivity('mart_items', 'updated', 'Updated mart item: ' + name);
-                                    console.log('✅ Activity logging completed successfully');
+                        console.log('📊 Saving to SQL database via AJAX:', updateData);
+
+                        // Update via SQL database
+                        $.ajax({
+                            url: '{{ route("mart-items.update", ["id" => "__ID__"]) }}'.replace('__ID__', id),
+                            method: 'POST',
+                            data: {
+                                _token: '{{ csrf_token() }}',
+                                ...updateData
+                            },
+                            success: function(response) {
+                                if (response.success) {
+                                    console.log('✅ Mart item updated successfully via SQL:', response);
+
+                                    // Log activity
+                                    if (typeof logActivity === 'function') {
+                                        logActivity('mart_items', 'updated', 'Updated mart item: ' + name);
+                                    }
+
+                                    // Hide loading indicator
+                                    jQuery("#data-table_processing").hide();
+
+                                    <?php if(isset($_GET['eid']) && $_GET['eid'] != ''){?>
+                                        window.location.href = "{{ route('marts.mart-items',$_GET['eid']) }}";
+                                    <?php }else{ ?>
+                                        window.location.href = '{{ route("mart-items")}}';
+                                    <?php } ?>
                                 } else {
-                                    console.warn('⚠️ logActivity function is not available');
+                                    console.error('❌ Update failed:', response.message);
+                                    jQuery("#data-table_processing").hide();
+                                    $(".error_top").show();
+                                    $(".error_top").html("<p>Error: " + response.message + "</p>");
+                                    window.scrollTo(0, 0);
                                 }
-                            } catch (error) {
-                                console.error('❌ Error calling logActivity:', error);
+                            },
+                            error: function(xhr, status, error) {
+                                console.error('❌ AJAX error updating item:', error);
+                                jQuery("#data-table_processing").hide();
+                                $(".error_top").show();
+                                $(".error_top").html("<p>Error updating item: " + (xhr.responseJSON?.message || error) + "</p>");
+                                window.scrollTo(0, 0);
                             }
-
-                            // Hide loading indicator
-                            jQuery("#data-table_processing").hide();
-
-                            <?php if(isset($_GET['eid']) && $_GET['eid'] != ''){?>
-                                window.location.href = "{{ route('marts.mart-items',$_GET['eid']) }}";
-                            <?php }else{ ?>
-                                window.location.href = '{{ route("mart-items")}}';
-                            <?php } ?>
-
-                        }).catch(err => {
-                            console.error('❌ Error updating mart item:', err);
-                            jQuery("#data-table_processing").hide();
-                            $(".error_top").show();
-                            $(".error_top").html("");
-                            $(".error_top").append("<p>Error updating item: " + (err.message || err.toString() || 'Unknown error occurred') + "</p>");
-                            window.scrollTo(0, 0);
                         });
                     // }).catch(function (error) {
                     //     jQuery("#data-table_processing").hide();

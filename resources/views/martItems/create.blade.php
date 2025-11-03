@@ -525,17 +525,14 @@
         // Debug: Check if collections exist
         console.log('🔍 Create page - Starting data fetch...');
 
-        // Fetch vendors with vType: 'mart' (case-insensitive)
-        database.collection('vendors').get().then(async function(snapshots) {
-            console.log('🔍 Create page - Found ' + snapshots.docs.length + ' total vendors');
-            var martVendorsFound = 0;
-            snapshots.docs.forEach((listval) => {
-                var data = listval.data();
-                console.log('📋 Create page - Vendor data:', data.title, 'vType:', data.vType);
-                // Check for mart vendors (case-insensitive)
-                if (data.vType && (data.vType.toLowerCase() === 'mart' || data.vType === 'Mart')) {
-                    martVendorsFound++;
-                    console.log('📋 Create page - Mart Vendor:', data.title, 'ID:', data.id, 'vType:', data.vType);
+        // Fetch vendors from SQL database
+        $.ajax({
+            url: '{{ route("mart-items.vendors") }}',
+            method: 'GET',
+            success: function(vendors) {
+                console.log('🔍 Create page - Found ' + vendors.length + ' mart vendors from SQL');
+                vendors.forEach((data) => {
+                    console.log('📋 Create page - Mart Vendor:', data.title, 'ID:', data.id);
                     restaurant_list.push(data);
                     $('#food_restaurant').append($("<option></option>")
                         .attr("value", data.id)
@@ -543,102 +540,82 @@
                     if (reataurantIDDirec == data.id) {
                         $(".restaurant_name_heading").html(data.title);
                     }
-                }
-            });
-            console.log('🔍 Create page - Total mart vendors found:', martVendorsFound);
-            if (martVendorsFound === 0) {
-                console.warn('⚠️ Create page - No mart vendors found! Check if vendors have vType: "mart" or "Mart"');
-                console.log('🔍 Create page - Showing all vendors for debugging...');
-                // Fallback: show all vendors for debugging
-                snapshots.docs.forEach((listval) => {
-                    var data = listval.data();
-                    console.log('📋 Create page - All Vendor:', data.title, 'ID:', data.id, 'vType:', data.vType);
-                    restaurant_list.push(data);
-                    $('#food_restaurant').append($("<option></option>")
+                });
+                console.log('✅ Create page - Loaded ' + vendors.length + ' mart vendors from SQL');
+            },
+            error: function(xhr, status, error) {
+                console.error('❌ Create page - Error fetching vendors:', error);
+            }
+        });
+
+        // Fetch mart categories from SQL
+        $.ajax({
+            url: '{{ route("mart-items.categories") }}',
+            method: 'GET',
+            success: function(categories) {
+                console.log('🔍 Create page - Found ' + categories.length + ' mart categories from SQL');
+                categories.forEach((data) => {
+                    console.log('📋 Create page - Category:', data.title, 'ID:', data.id);
+                    categories_list.push(data);
+                    $('#food_category').append($("<option></option>")
                         .attr("value", data.id)
-                        .text(data.title + ' (' + (data.vType || 'no vType') + ')'));
-                    if (reataurantIDDirec == data.id) {
-                        $(".restaurant_name_heading").html(data.title);
-                    }
+                        .text(data.title));
                 });
+                updateSelectedFoodCategoryTags();
+                console.log('✅ Create page - Loaded ' + categories.length + ' categories from SQL');
+            },
+            error: function(xhr, status, error) {
+                console.error('❌ Create page - Error fetching categories:', error);
             }
-        }).catch(function(error) {
-            console.error('❌ Create page - Error fetching vendors:', error);
         });
 
-        // Fetch mart categories
-        database.collection('mart_categories').where('publish','==',true).get().then(async function(snapshots) {
-            console.log('🔍 Create page - Found ' + snapshots.docs.length + ' mart categories');
-            if (snapshots.docs.length === 0) {
-                console.warn('⚠️ Create page - No mart categories found! Check if mart_categories collection exists and has published categories');
-                console.log('🔍 Create page - Trying to fetch all categories for debugging...');
-                // Fallback: try to fetch all categories
-                database.collection('mart_categories').get().then(async function(allSnapshots) {
-                    console.log('🔍 Create page - Found ' + allSnapshots.docs.length + ' total categories (including unpublished)');
-                    allSnapshots.docs.forEach((listval) => {
-                        var data = listval.data();
-                        console.log('📋 Create page - All Category:', data.title, 'ID:', data.id, 'publish:', data.publish);
-                        categories_list.push(data);
-                        $('#food_category').append($("<option></option>")
-                            .attr("value", data.id)
-                            .text(data.title + ' (' + (data.publish ? 'published' : 'unpublished') + ')'));
-                    });
-                    updateSelectedFoodCategoryTags();
-                }).catch(function(fallbackError) {
-                    console.error('❌ Create page - Error fetching all categories:', fallbackError);
+        // Fetch mart subcategories from SQL
+        $.ajax({
+            url: '{{ route("mart-items.subcategories") }}',
+            method: 'GET',
+            success: function(subcategories) {
+                console.log('🔍 Create page - Found ' + subcategories.length + ' mart subcategories from SQL');
+                subcategories.forEach((data) => {
+                    console.log('📋 Create page - Subcategory:', data.title, 'ID:', data.id, 'Parent:', data.categoryID);
+                    $('#food_subcategory').append($("<option></option>")
+                        .attr("value", data.id)
+                        .attr("data-parent", data.categoryID || data.parent_category_id)
+                        .text(data.title));
                 });
+                updateSelectedSubcategoryTags();
+
+                // Debug: Log the selected subcategory value
+                $('#food_subcategory').on('change', function() {
+                    console.log('🔍 Selected subcategory value:', $(this).val());
+                    console.log('🔍 Selected subcategory text:', $(this).find('option:selected').text());
+
+                    // Auto-fetch section from selected subcategory
+                    updateSectionFromSubcategory();
+                });
+                console.log('✅ Create page - Loaded ' + subcategories.length + ' subcategories from SQL');
+            },
+            error: function(xhr, status, error) {
+                console.error('❌ Create page - Error fetching subcategories:', error);
             }
-            snapshots.docs.forEach((listval) => {
-                var data = listval.data();
-                console.log('📋 Create page - Category:', data.title, 'ID:', data.id, 'publish:', data.publish);
-                categories_list.push(data);
-                $('#food_category').append($("<option></option>")
-                    .attr("value", data.id)
-                    .text(data.title));
-            });
-            // Update the selected categories display
-            updateSelectedFoodCategoryTags();
-        }).catch(function(error) {
-            console.error('❌ Create page - Error fetching categories:', error);
         });
 
-        // Fetch mart subcategories
-        database.collection('mart_subcategories').where('publish','==',true).get().then(async function(snapshots) {
-            console.log('🔍 Create page - Found ' + snapshots.docs.length + ' mart subcategories');
-            snapshots.docs.forEach((listval) => {
-                var data = listval.data();
-                console.log('📋 Create page - Subcategory:', data.title, 'ID:', data.id, 'Parent:', data.parent_category_id);
-                $('#food_subcategory').append($("<option></option>")
-                    .attr("value", data.id)
-                    .attr("data-parent", data.parent_category_id)
-                    .text(data.title));
-            });
-            updateSelectedSubcategoryTags();
-
-            // Debug: Log the selected subcategory value
-            $('#food_subcategory').on('change', function() {
-                console.log('🔍 Selected subcategory value:', $(this).val());
-                console.log('🔍 Selected subcategory text:', $(this).find('option:selected').text());
-
-                // Auto-fetch section from selected subcategory
-                updateSectionFromSubcategory();
-            });
-        }).catch(function(error) {
-            console.error('❌ Create page - Error fetching subcategories:', error);
-        });
-
-        // Fetch brands
-        database.collection('brands').where('status','==',true).get().then(async function(snapshots) {
-            console.log('🔍 Create page - Found ' + snapshots.docs.length + ' brands');
-            snapshots.docs.forEach((listval) => {
-                var data = listval.data();
-                console.log('📋 Create page - Brand:', data.name, 'ID:', data.id, 'Status:', data.status);
-                $('#brand_select').append($("<option></option>")
-                    .attr("value", data.id)
-                    .text(data.name));
-            });
-        }).catch(function(error) {
-            console.error('❌ Create page - Error fetching brands:', error);
+        // Fetch brands from SQL
+        $.ajax({
+            url: '{{ route("mart-items.brands") }}',
+            method: 'GET',
+            success: function(brands) {
+                console.log('🔍 Create page - Found ' + brands.length + ' brands from SQL');
+                brands.forEach((data) => {
+                    console.log('📋 Create page - Brand:', data.name, 'ID:', data.id);
+                    $('#brand_select').append($("<option></option>")
+                        .attr("value", data.id)
+                        .text(data.name));
+                });
+                console.log('✅ Create page - Loaded ' + brands.length + ' brands from SQL');
+            },
+            error: function(xhr, status, error) {
+                console.error('❌ Create page - Error fetching brands:', error);
+            }
         });
 
         // Fetch vendor attributes
@@ -889,25 +866,23 @@
                 const maxPrice = Math.max(...prices);
                 const defaultOptionId = optionsList.find(opt => opt.is_featured)?.id || optionsList[0]?.id;
 
-                // Create single document with nested options
-                // Generate a temporary document reference to get the ID first
-                const docRef = database.collection('mart_items').doc();
-                const documentId = docRef.id;
+                // Prepare item data for SQL save
+                const documentId = 'item_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
                 const itemData = {
-                    id: documentId, // Include ID in the initial document creation
+                    id: documentId,
                     name: name,
                     price: parseFloat(price) || 0,
                     disPrice: parseFloat(discount) || parseFloat(price) || 0,
                     vendorID: restaurant,
-                    vendorTitle: vendorTitle, // Add vendor title
+                    vendorTitle: vendorTitle,
                     categoryID: category,
-                    categoryTitle: categoryTitle, // Add category title
-                    subcategoryID: subcategory || '', // Add subcategory
-                    subcategoryTitle: subcategoryTitle || '', // Add subcategory title
-                    brandID: brand || '', // Add brand ID
-                    brandTitle: brandTitle || '', // Add brand title
-                    section: $('#section_info').val() || 'General', // Add section
+                    categoryTitle: categoryTitle,
+                    subcategoryID: subcategory || '',
+                    subcategoryTitle: subcategoryTitle || '',
+                    brandID: brand || '',
+                    brandTitle: brandTitle || '',
+                    section: $('#section_info').val() || 'General',
                     photo: photo || '',
                     description: description,
                     publish: foodPublish,
@@ -915,9 +890,6 @@
                     nonveg: nonveg,
                     veg: veg,
                     takeawayOption: foodTakeaway,
-
-
-                    // Enhanced Filter Fields
                     isSpotlight: isSpotlight,
                     isStealOfMoment: isStealOfMoment,
                     isFeature: isFeature,
@@ -925,8 +897,6 @@
                     isNew: isNew,
                     isBestSeller: isBestSeller,
                     isSeasonal: isSeasonal,
-
-                    // Options configuration
                     has_options: true,
                     options_enabled: true,
                     options_toggle: true,
@@ -937,64 +907,61 @@
                     default_option_id: defaultOptionId || '',
                     best_value_option: optionsList.find(opt => opt.total_price === Math.min(...optionsList.map(o => o.total_price)))?.id || '',
                     savings_percentage: Math.max(...optionsList.map(opt => opt.original_total_price > opt.total_price ? ((opt.original_total_price - opt.total_price) / opt.original_total_price) * 100 : 0)) || 0,
-
-                    // Nested options array
-                    options: optionsData,
-
-                    // Existing fields
+                    options: JSON.stringify(optionsData),
                     quantity: parseInt(quantity) || -1,
                     calories: parseInt($(".food_calories").val()) || 0,
                     grams: parseInt($(".food_grams").val()) || 0,
                     proteins: parseInt($(".food_proteins").val()) || 0,
                     fats: parseInt($(".food_fats").val()) || 0,
-                    addOnsTitle: addOnesTitle || [],
-                    addOnesPrice: addOnesPrice || [],
-                    product_specification: product_specification || {},
-                    item_attribute: null,
-                    created_at: firebase.firestore.FieldValue.serverTimestamp(),
-                    updated_at: firebase.firestore.FieldValue.serverTimestamp()
+                    addOnsTitle: JSON.stringify(addOnesTitle || []),
+                    addOnsPrice: JSON.stringify(addOnesPrice || []),
+                    product_specification: JSON.stringify(product_specification || {}),
+                    item_attribute: null
                 };
 
-                console.log('📊 Saving item with options:', itemData);
-                console.log('🔍 Document ID being used:', documentId);
-                console.log('🔍 Document reference:', docRef);
+                console.log('📊 Saving item with options via SQL:', itemData);
 
-                try {
-                    // Save single document with ID included from the start
-                    await docRef.set(itemData);
-
-                    console.log('✅ Mart item with options created successfully with ID:', documentId);
-                    console.log('✅ Document saved with ID field included from creation');
-
-                    // Log activity (optional - don't block save if it fails)
-                    try {
-                        if (typeof logActivity === 'function') {
-                            await logActivity('mart_items', 'created', 'Created mart item with options: ' + itemData.name);
+                // Save to SQL database via AJAX
+                $.ajax({
+                    url: '{{ route("mart-items.store") }}',
+                    method: 'POST',
+                    data: {
+                        _token: '{{ csrf_token() }}',
+                        ...itemData
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            console.log('✅ Mart item created successfully via SQL:', response);
+                            
+                            // Log activity
+                            if (typeof logActivity === 'function') {
+                                logActivity('mart_items', 'created', 'Created mart item with options: ' + itemData.name);
+                            }
+                            
+                            <?php if ($id != '') { ?>
+                                window.location.href = '{{ route("marts.mart-items", $id) }}';
+                            <?php } else { ?>
+                                window.location.href = '{{ route("mart-items") }}';
+                            <?php } ?>
+                        } else {
+                            console.error('❌ Save failed:', response.message);
+                            $(".error_top").show();
+                            $(".error_top").html("<p>Error: " + response.message + "</p>");
+                            window.scrollTo(0, 0);
                         }
-                    } catch (error) {
-                        console.warn('⚠️ Activity logging failed, but item was saved successfully:', error);
+                    },
+                    error: function(xhr, status, error) {
+                        console.error('❌ AJAX error:', error);
+                        $(".error_top").show();
+                        $(".error_top").html("<p>Error saving item: " + (xhr.responseJSON?.message || error) + "</p>");
+                        window.scrollTo(0, 0);
                     }
-
-                } catch (error) {
-                    console.error('❌ Error creating mart item with options:', error);
-                    $(".error_top").show();
-                    $(".error_top").html("");
-                    $(".error_top").append("<p>Error saving item: " + (error.message || 'Unknown error occurred') + "</p>");
-                    window.scrollTo(0, 0);
-                    return;
-                }
-
-                <?php if ($id != '') { ?>
-                    window.location.href = '{{ route("marts.mart-items", $id) }}';
-                <?php } else { ?>
-                    window.location.href = '{{ route("mart-items") }}';
-                <?php } ?>
+                });
 
             } else {
                 // Save regular item without options
                 // Generate a temporary document reference to get the ID first
-                const docRef = database.collection('mart_items').doc();
-                const documentId = docRef.id;
+                const documentId = 'item_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
                 const itemData = {
                     id: documentId, // Include ID in the initial document creation
@@ -1048,44 +1015,52 @@
                     addOnsPrice: addOnesPrice || [],
                     product_specification: product_specification || {},
                     item_attribute: null,
-                    created_at: firebase.firestore.FieldValue.serverTimestamp(),
-                    updated_at: firebase.firestore.FieldValue.serverTimestamp()
                 };
 
-                console.log('📊 Saving regular item:', itemData);
-                console.log('🔍 Document ID being used:', documentId);
-                console.log('🔍 Document reference:', docRef);
+                // Convert arrays to JSON strings for SQL
+                itemData.options = JSON.stringify([]);
+                itemData.addOnsTitle = JSON.stringify(itemData.addOnsTitle || []);
+                itemData.addOnsPrice = JSON.stringify(itemData.addOnsPrice || []);
+                itemData.product_specification = JSON.stringify(itemData.product_specification || {});
 
-                try {
-                    // Save single document with ID included from the start
-                    await docRef.set(itemData);
+                console.log('📊 Saving regular item via SQL:', itemData);
 
-                    console.log('✅ Regular mart item created successfully with ID:', documentId);
-                    console.log('✅ Document saved with ID field included from creation');
-
-                    // Log activity (optional - don't block save if it fails)
-                    try {
-                        if (typeof logActivity === 'function') {
-                            await logActivity('mart_items', 'created', 'Created mart item: ' + itemData.name);
+                // Save to SQL database via AJAX
+                $.ajax({
+                    url: '{{ route("mart-items.store") }}',
+                    method: 'POST',
+                    data: {
+                        _token: '{{ csrf_token() }}',
+                        ...itemData
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            console.log('✅ Regular mart item created successfully via SQL:', response);
+                            
+                            // Log activity
+                            if (typeof logActivity === 'function') {
+                                logActivity('mart_items', 'created', 'Created mart item: ' + itemData.name);
+                            }
+                            
+                            <?php if ($id != '') { ?>
+                                window.location.href = '{{ route("marts.mart-items", $id) }}';
+                            <?php } else { ?>
+                                window.location.href = '{{ route("mart-items") }}';
+                            <?php } ?>
+                        } else {
+                            console.error('❌ Save failed:', response.message);
+                            $(".error_top").show();
+                            $(".error_top").html("<p>Error: " + response.message + "</p>");
+                            window.scrollTo(0, 0);
                         }
-                    } catch (error) {
-                        console.warn('⚠️ Activity logging failed, but item was saved successfully:', error);
+                    },
+                    error: function(xhr, status, error) {
+                        console.error('❌ AJAX error creating item:', error);
+                        $(".error_top").show();
+                        $(".error_top").html("<p>Error saving item: " + (xhr.responseJSON?.message || error) + "</p>");
+                        window.scrollTo(0, 0);
                     }
-
-                } catch (error) {
-                    console.error('❌ Error creating regular mart item:', error);
-                    $(".error_top").show();
-                    $(".error_top").html("");
-                    $(".error_top").append("<p>Error saving item: " + (error.message || 'Unknown error occurred') + "</p>");
-                    window.scrollTo(0, 0);
-                    return;
-                }
-
-                <?php if ($id != '') { ?>
-                    window.location.href = '{{ route("marts.mart-items", $id) }}';
-                <?php } else { ?>
-                    window.location.href = '{{ route("mart-items") }}';
-                <?php } ?>
+                });
             }
         })
     })
@@ -1705,42 +1680,28 @@ function updateSectionFromSubcategory() {
         if (subcategoryId && subcategoryId !== '') {
             console.log('🔍 Fetching section for subcategory ID:', subcategoryId);
 
-            // Fetch the subcategory document to get its parent category info
-            database.collection('mart_subcategories').doc(subcategoryId).get().then(function(doc) {
-                if (doc.exists) {
-                    var subcategoryData = doc.data();
-                    console.log('📋 Subcategory data:', subcategoryData);
+            // Find the subcategory's parent from the dropdown option
+            var parentCategoryId = $('#food_subcategory option[value="' + subcategoryId + '"]').attr('data-parent');
+            console.log('📋 Parent category ID from option:', parentCategoryId);
 
-                    if (subcategoryData.parent_category_id) {
-                        // Fetch the parent category to get the section
-                        database.collection('mart_categories').doc(subcategoryData.parent_category_id).get().then(function(categoryDoc) {
-                            if (categoryDoc.exists) {
-                                var categoryData = categoryDoc.data();
-                                console.log('📋 Parent category data:', categoryData);
-
-                                var section = categoryData.section || 'General';
-                                $('#section_info').val(section);
-                                console.log('✅ Section updated to:', section);
-                            } else {
-                                console.warn('⚠️ Parent category not found');
-                                $('#section_info').val('General');
-                            }
-                        }).catch(function(error) {
-                            console.error('❌ Error fetching parent category:', error);
-                            $('#section_info').val('General');
-                        });
-                    } else {
-                        console.warn('⚠️ Subcategory has no parent category');
-                        $('#section_info').val('General');
-                    }
+            if (parentCategoryId) {
+                // Find the parent category from the categories list
+                var parentCategory = categories_list.find(function(cat) {
+                    return cat.id === parentCategoryId;
+                });
+                
+                if (parentCategory) {
+                    var section = parentCategory.section || 'General';
+                    $('#section_info').val(section);
+                    console.log('✅ Section updated to:', section);
                 } else {
-                    console.warn('⚠️ Subcategory not found');
+                    console.warn('⚠️ Parent category not found in list');
                     $('#section_info').val('General');
                 }
-            }).catch(function(error) {
-                console.error('❌ Error fetching subcategory:', error);
+            } else {
+                console.warn('⚠️ Subcategory has no parent category');
                 $('#section_info').val('General');
-            });
+            }
         } else {
             $('#section_info').val('');
         }

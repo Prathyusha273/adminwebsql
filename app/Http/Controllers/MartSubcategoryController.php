@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\MartSubcategory;
+use App\Models\MartCategory;
 use Illuminate\Http\Request;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Illuminate\Support\Str;
-use Google\Cloud\Firestore\FirestoreClient;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 
 class MartSubcategoryController extends Controller
 {   
@@ -40,6 +42,303 @@ class MartSubcategoryController extends Controller
     }
 
     /**
+     * Get all sub-categories for a specific parent category (AJAX)
+     */
+    public function getData(Request $request, $categoryId)
+    {
+        $start = $request->input('start', 0);
+        $length = $request->input('length', 10);
+        $searchValue = strtolower($request->input('search.value', ''));
+        $orderColumnIndex = $request->input('order.0.column', 1);
+        $orderDirection = $request->input('order.0.dir', 'asc');
+        
+        $user_permissions = json_decode(session('user_permissions'), true) ?? [];
+        $checkDeletePermission = in_array('mart-subcategories.delete', $user_permissions);
+        
+        $orderableColumns = $checkDeletePermission 
+            ? ['', 'title', 'subcategory_order', 'totalProducts', '', ''] 
+            : ['title', 'subcategory_order', 'totalProducts', '', ''];
+        
+        $orderByField = $orderableColumns[$orderColumnIndex] ?? 'title';
+        
+        // Build query
+        $query = MartSubcategory::where('parent_category_id', $categoryId);
+        
+        // Apply search filter
+        if (!empty($searchValue) && strlen($searchValue) >= 3) {
+            $query->where(function($q) use ($searchValue) {
+                $q->where('title', 'like', "%{$searchValue}%")
+                  ->orWhere('description', 'like', "%{$searchValue}%")
+                  ->orWhere('subcategory_order', 'like', "%{$searchValue}%");
+            });
+        }
+        
+        // Get total count
+        $totalRecords = $query->count();
+        
+        // Apply ordering
+        if (!empty($orderByField) && $orderByField !== '') {
+            $query->orderBy($orderByField, $orderDirection);
+        }
+        
+        // Apply pagination
+        $subcategories = $query->skip($start)->take($length)->get();
+        
+        // Get mart items counts
+        $records = [];
+        foreach ($subcategories as $subcategory) {
+            // Get mart items count
+            $totalProducts = DB::table('mart_items')
+                ->where('subcategoryID', $subcategory->id)
+                ->count();
+            
+            $records[] = [
+                'id' => $subcategory->id,
+                'title' => $subcategory->title,
+                'description' => $subcategory->description ?? '',
+                'photo' => $subcategory->photo ?? '',
+                'subcategory_order' => $subcategory->subcategory_order ?? 1,
+                'publish' => $subcategory->publish ? true : false,
+                'show_in_homepage' => $subcategory->show_in_homepage ? true : false,
+                'totalProducts' => $totalProducts,
+                'review_attributes' => $subcategory->review_attributes ? json_decode($subcategory->review_attributes, true) : [],
+                'parent_category_id' => $subcategory->parent_category_id,
+                'parent_category_title' => $subcategory->parent_category_title,
+                'section' => $subcategory->section
+            ];
+        }
+        
+        return response()->json([
+            'draw' => intval($request->input('draw')),
+            'recordsTotal' => $totalRecords,
+            'recordsFiltered' => $totalRecords,
+            'data' => $records
+        ]);
+    }
+
+    /**
+     * Get single sub-category by ID
+     */
+    public function getSubcategory($id)
+    {
+        $subcategory = MartSubcategory::find($id);
+        
+        if (!$subcategory) {
+            return response()->json(['error' => 'Sub-category not found'], 404);
+        }
+        
+        return response()->json([
+            'id' => $subcategory->id,
+            'title' => $subcategory->title,
+            'description' => $subcategory->description ?? '',
+            'photo' => $subcategory->photo ?? '',
+            'subcategory_order' => $subcategory->subcategory_order ?? 1,
+            'publish' => $subcategory->publish ? true : false,
+            'show_in_homepage' => $subcategory->show_in_homepage ? true : false,
+            'review_attributes' => $subcategory->review_attributes ? json_decode($subcategory->review_attributes, true) : [],
+            'parent_category_id' => $subcategory->parent_category_id,
+            'parent_category_title' => $subcategory->parent_category_title,
+            'section' => $subcategory->section,
+            'section_order' => $subcategory->section_order,
+            'category_order' => $subcategory->category_order,
+            'mart_id' => $subcategory->mart_id
+        ]);
+    }
+
+    /**
+     * Get parent category info
+     */
+    public function getParentCategory($categoryId)
+    {
+        $category = MartCategory::find($categoryId);
+        
+        if (!$category) {
+            return response()->json(['error' => 'Category not found'], 404);
+        }
+        
+        return response()->json([
+            'id' => $category->id,
+            'title' => $category->title,
+            'section' => $category->section ?? 'General'
+        ]);
+    }
+
+    /**
+     * Store new sub-category
+     */
+    public function store(Request $request)
+    {
+        $request->validate([
+            'title' => 'required|string|max:255',
+            'photo' => 'nullable|string',
+            'description' => 'nullable|string',
+            'parent_category_id' => 'required|string',
+            'subcategory_order' => 'nullable|integer',
+            'publish' => 'nullable|in:0,1,true,false',
+            'show_in_homepage' => 'nullable|in:0,1,true,false',
+            'review_attributes' => 'nullable|array'
+        ]);
+
+        // Get parent category info
+        $parentCategory = MartCategory::find($request->input('parent_category_id'));
+        if (!$parentCategory) {
+            return response()->json(['error' => 'Parent category not found'], 404);
+        }
+
+        $id = uniqid();
+        
+        $subcategory = MartSubcategory::create([
+            'id' => $id,
+            'title' => $request->input('title'),
+            'description' => $request->input('description', ''),
+            'photo' => $request->input('photo', ''),
+            'parent_category_id' => $request->input('parent_category_id'),
+            'parent_category_title' => $parentCategory->title,
+            'section' => $parentCategory->section ?? 'General',
+            'section_order' => 1,
+            'category_order' => 1,
+            'subcategory_order' => $request->input('subcategory_order', 1),
+            'publish' => filter_var($request->input('publish', false), FILTER_VALIDATE_BOOLEAN),
+            'show_in_homepage' => filter_var($request->input('show_in_homepage', false), FILTER_VALIDATE_BOOLEAN),
+            'review_attributes' => json_encode($request->input('review_attributes', [])),
+            'mart_id' => ''
+        ]);
+
+        // Update parent category subcategory count
+        $this->updateParentCategoryCount($request->input('parent_category_id'));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Mart sub-category created successfully',
+            'id' => $subcategory->id
+        ]);
+    }
+
+    /**
+     * Update existing sub-category
+     */
+    public function update(Request $request, $id)
+    {
+        $request->validate([
+            'title' => 'required|string|max:255',
+            'photo' => 'nullable|string',
+            'description' => 'nullable|string',
+            'subcategory_order' => 'nullable|integer',
+            'publish' => 'nullable|in:0,1,true,false',
+            'show_in_homepage' => 'nullable|in:0,1,true,false',
+            'review_attributes' => 'nullable|array'
+        ]);
+
+        $subcategory = MartSubcategory::find($id);
+        
+        if (!$subcategory) {
+            return response()->json(['error' => 'Sub-category not found'], 404);
+        }
+
+        $subcategory->update([
+            'title' => $request->input('title'),
+            'description' => $request->input('description', ''),
+            'photo' => $request->input('photo', ''),
+            'subcategory_order' => $request->input('subcategory_order', 1),
+            'publish' => filter_var($request->input('publish', false), FILTER_VALIDATE_BOOLEAN),
+            'show_in_homepage' => filter_var($request->input('show_in_homepage', false), FILTER_VALIDATE_BOOLEAN),
+            'review_attributes' => json_encode($request->input('review_attributes', []))
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Mart sub-category updated successfully'
+        ]);
+    }
+
+    /**
+     * Delete sub-category
+     */
+    public function destroy($id)
+    {
+        $subcategory = MartSubcategory::find($id);
+        
+        if (!$subcategory) {
+            return response()->json(['error' => 'Sub-category not found'], 404);
+        }
+
+        $parentCategoryId = $subcategory->parent_category_id;
+        $subcategory->delete();
+
+        // Update parent category count
+        $this->updateParentCategoryCount($parentCategoryId);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Mart sub-category deleted successfully'
+        ]);
+    }
+
+    /**
+     * Delete multiple sub-categories
+     */
+    public function bulkDelete(Request $request)
+    {
+        $ids = $request->input('ids', []);
+        
+        if (empty($ids)) {
+            return response()->json(['error' => 'No sub-categories selected'], 400);
+        }
+
+        // Get unique parent category IDs before deletion
+        $parentCategoryIds = MartSubcategory::whereIn('id', $ids)
+            ->pluck('parent_category_id')
+            ->unique()
+            ->toArray();
+
+        MartSubcategory::whereIn('id', $ids)->delete();
+
+        // Update all affected parent categories
+        foreach ($parentCategoryIds as $parentId) {
+            $this->updateParentCategoryCount($parentId);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Sub-categories deleted successfully'
+        ]);
+    }
+
+    /**
+     * Toggle publish status
+     */
+    public function togglePublish(Request $request, $id)
+    {
+        $subcategory = MartSubcategory::find($id);
+        
+        if (!$subcategory) {
+            return response()->json(['error' => 'Sub-category not found'], 404);
+        }
+
+        $subcategory->update([
+            'publish' => filter_var($request->input('publish', false), FILTER_VALIDATE_BOOLEAN)
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Publish status updated successfully'
+        ]);
+    }
+
+    /**
+     * Update parent category subcategory count
+     */
+    private function updateParentCategoryCount($parentCategoryId)
+    {
+        $count = MartSubcategory::where('parent_category_id', $parentCategoryId)->count();
+        
+        MartCategory::where('id', $parentCategoryId)->update([
+            'subcategories_count' => $count,
+            'has_subcategories' => $count > 0
+        ]);
+    }
+
+    /**
      * Bulk import sub-categories from Excel file
      */
     public function import(Request $request)
@@ -57,19 +356,12 @@ class MartSubcategoryController extends Controller
 
         $headers = array_map('trim', array_shift($rows));
         
-        // Initialize Firestore client
-        $firestore = new FirestoreClient([
-            'projectId' => config('firestore.project_id'),
-            'keyFilePath' => config('firestore.credentials'),
-        ]);
-        
-        $collection = $firestore->collection('mart_subcategories');
         $imported = 0;
         $errors = [];
         
         foreach ($rows as $index => $row) {
             $data = array_combine($headers, $row);
-            $rowNumber = $index + 2; // +2 because we removed header row and arrays are 0-indexed
+            $rowNumber = $index + 2;
             
             // Validate required fields
             if (empty($data['title'])) {
@@ -77,79 +369,50 @@ class MartSubcategoryController extends Controller
                 continue;
             }
             
-            // Process parent category - handle both ID and name lookup
-            $parentCategoryId = $this->resolveParentCategoryId($data['parent_category_id'] ?? '', $firestore);
+            // Process parent category
+            $parentCategoryId = $this->resolveParentCategoryId($data['parent_category_id'] ?? '');
             if (!$parentCategoryId) {
-                $errors[] = "Row $rowNumber: Parent category '{$data['parent_category_id']}' not found. Please use category ID or name";
+                $errors[] = "Row $rowNumber: Parent category '{$data['parent_category_id']}' not found";
                 continue;
             }
             
             // Get parent category info
-            $parentCategory = $this->getParentCategoryInfo($parentCategoryId, $firestore);
+            $parentCategory = MartCategory::find($parentCategoryId);
             if (!$parentCategory) {
                 $errors[] = "Row $rowNumber: Parent category data not found";
                 continue;
             }
             
-            // Process review attributes - handle both comma-separated IDs and names
+            // Process review attributes
             $reviewAttributes = [];
             if (!empty($data['review_attributes'])) {
                 $reviewAttributeInputs = array_filter(array_map('trim', explode(',', $data['review_attributes'])));
                 foreach ($reviewAttributeInputs as $input) {
-                    $attributeId = $this->resolveReviewAttributeId($input, $firestore);
-                    if ($attributeId) {
-                        $reviewAttributes[] = $attributeId;
-                    } else {
-                        $errors[] = "Row $rowNumber: Review attribute '$input' not found";
-                    }
+                    $reviewAttributes[] = $input;
                 }
             }
             
-            // Also check for additional review attribute columns (I, J, K, etc.)
-            $additionalAttributes = [];
-            for ($col = 'I'; $col <= 'Z'; $col++) {
-                if (isset($data[$col]) && !empty(trim($data[$col]))) {
-                    $additionalAttributes[] = trim($data[$col]);
-                }
-            }
-            
-            // Process additional review attributes
-            foreach ($additionalAttributes as $input) {
-                $attributeId = $this->resolveReviewAttributeId($input, $firestore);
-                if ($attributeId) {
-                    $reviewAttributes[] = $attributeId;
-                } else {
-                    $errors[] = "Row $rowNumber: Review attribute '$input' not found";
-                }
-            }
-            
-            // Process photo - handle media module integration (MOST ADVANCED)
-            $photoUrl = $this->resolveMediaImage($data['photo'] ?? '', $firestore);
-            
-            // Create document with auto-generated ID - matching create form structure
-            $docRef = $collection->add([
-                'id' => '', // Will be set to doc ID after creation
+            // Create sub-category
+            MartSubcategory::create([
+                'id' => uniqid(),
                 'title' => trim($data['title']),
                 'description' => trim($data['description'] ?? ''),
-                'photo' => $photoUrl,
+                'photo' => $data['photo'] ?? '',
                 'parent_category_id' => $parentCategoryId,
-                'parent_category_title' => $parentCategory['title'],
-                'section' => $parentCategory['section'] ?? 'General',
-                'section_order' => 1, // Fixed value like in create form
-                'category_order' => 1, // Fixed value like in create form
+                'parent_category_title' => $parentCategory->title,
+                'section' => $parentCategory->section ?? 'General',
+                'section_order' => 1,
+                'category_order' => 1,
                 'subcategory_order' => intval($data['subcategory_order'] ?? 1),
-                'mart_id' => $data['mart_id'] ?? '', // Use provided mart_id or empty string
-                'review_attributes' => $reviewAttributes,
+                'mart_id' => $data['mart_id'] ?? '',
+                'review_attributes' => json_encode($reviewAttributes),
                 'publish' => strtolower($data['publish'] ?? 'false') === 'true',
                 'show_in_homepage' => strtolower($data['show_in_homepage'] ?? 'false') === 'true',
                 'migratedBy' => 'bulk_import',
             ]);
             
-            // Set the internal 'id' field to match the Firestore document ID
-            $docRef->set(['id' => $docRef->id()], ['merge' => true]);
-            
-            // Update parent category sub-category count
-            $this->updateParentCategoryCount($parentCategoryId, $firestore);
+            // Update parent category count
+            $this->updateParentCategoryCount($parentCategoryId);
             
             $imported++;
         }
@@ -191,187 +454,24 @@ class MartSubcategoryController extends Controller
     }
 
     /**
-     * Get parent category information
-     */
-    private function getParentCategoryInfo($parentId, $firestore)
-    {
-        try {
-            $doc = $firestore->collection('mart_categories')->document($parentId)->snapshot();
-            if ($doc->exists()) {
-                return $doc->data();
-            }
-        } catch (\Exception $e) {
-            // Log error if needed
-        }
-        return null;
-    }
-
-    /**
-     * Update parent category sub-category count
-     */
-    private function updateParentCategoryCount($parentId, $firestore)
-    {
-        try {
-            $subcategories = $firestore->collection('mart_subcategories')
-                ->where('parent_category_id', '==', $parentId)
-                ->documents();
-            
-            $count = 0;
-            foreach ($subcategories as $doc) {
-                $count++;
-            }
-            
-            $firestore->collection('mart_categories')->document($parentId)->update([
-                'subcategories_count' => $count,
-                'has_subcategories' => $count > 0
-            ]);
-        } catch (\Exception $e) {
-            // Log error if needed
-        }
-    }
-
-    /**
      * Resolve parent category ID from input (can be ID or name)
      */
-    private function resolveParentCategoryId($input, $firestore)
+    private function resolveParentCategoryId($input)
     {
         if (empty($input)) {
             return null;
         }
 
         // First try as direct ID
-        try {
-            $categoryDoc = $firestore->collection('mart_categories')->document($input)->snapshot();
-            if ($categoryDoc->exists()) {
-                return $input; // Return the ID as-is
-            }
-        } catch (\Exception $e) {
-            // Continue to name lookup
+        $category = MartCategory::find($input);
+        if ($category) {
+            return $input;
         }
 
         // If not found as ID, try name lookup
-        try {
-            $categories = $firestore->collection('mart_categories')
-                ->where('title', '==', trim($input))
-                ->limit(1)
-                ->documents();
-
-            foreach ($categories as $category) {
-                return $category->id();
-            }
-        } catch (\Exception $e) {
-            // Log error if needed
-        }
-
-        return null;
-    }
-
-    /**
-     * Resolve review attribute ID from input (can be ID or name)
-     */
-    private function resolveReviewAttributeId($input, $firestore)
-    {
-        if (empty($input)) {
-            return null;
-        }
-
-        // First try as direct ID
-        try {
-            $attributeDoc = $firestore->collection('review_attributes')->document($input)->snapshot();
-            if ($attributeDoc->exists()) {
-                return $input; // Return the ID as-is
-            }
-        } catch (\Exception $e) {
-            // Continue to name lookup
-        }
-
-        // If not found as ID, try name lookup
-        try {
-            $attributes = $firestore->collection('review_attributes')
-                ->where('title', '==', trim($input))
-                ->limit(1)
-                ->documents();
-
-            foreach ($attributes as $attribute) {
-                return $attribute->id();
-            }
-        } catch (\Exception $e) {
-            // Log error if needed
-        }
-
-        return null;
-    }
-
-    /**
-     * Resolve media image - lookup by multiple fields in media collection (MOST ADVANCED)
-     * Supports: image_name, name, slug, image_path
-     */
-    private function resolveMediaImage($imageInput, $firestore)
-    {
-        if (empty($imageInput)) {
-            return '';
-        }
-
-        try {
-            // If input is already a full image_path URL, return it directly
-            if (filter_var($imageInput, FILTER_VALIDATE_URL) && strpos($imageInput, 'firebasestorage.googleapis.com') !== false) {
-                return $imageInput;
-            }
-
-            // Try lookup by image_name
-            $mediaData = $this->queryMediaByField($firestore, 'image_name', $imageInput);
-            if ($mediaData && isset($mediaData['image_path'])) {
-                return $mediaData['image_path'];
-            }
-
-            // Try lookup by name
-            $mediaData = $this->queryMediaByField($firestore, 'name', $imageInput);
-            if ($mediaData && isset($mediaData['image_path'])) {
-                return $mediaData['image_path'];
-            }
-
-            // Try lookup by slug
-            $mediaData = $this->queryMediaByField($firestore, 'slug', $imageInput);
-            if ($mediaData && isset($mediaData['image_path'])) {
-                return $mediaData['image_path'];
-            }
-
-            // Try lookup by image_path (partial match for URLs)
-            if (strpos($imageInput, 'http') === 0) {
-                $mediaData = $this->queryMediaByField($firestore, 'image_path', $imageInput);
-                if ($mediaData && isset($mediaData['image_path'])) {
-                    return $mediaData['image_path'];
-                }
-            }
-
-        } catch (\Exception $e) {
-            // Log error but continue without image
-            \Log::warning('Media lookup failed for: ' . $imageInput . ' - ' . $e->getMessage());
-        }
-
-        // If no media found, return the input as-is (might be a placeholder or direct URL)
-        return $imageInput;
-    }
-
-    /**
-     * Helper method to query media collection by specific field
-     */
-    private function queryMediaByField($firestore, $field, $value)
-    {
-        try {
-            $mediaQuery = $firestore->collection('media')
-                ->where($field, '==', $value)
-                ->limit(1);
-
-            $mediaDocs = $mediaQuery->documents();
-
-            foreach ($mediaDocs as $mediaDoc) {
-                if ($mediaDoc->exists()) {
-                    return $mediaDoc->data();
-                }
-            }
-        } catch (\Exception $e) {
-            // Continue to next field
+        $category = MartCategory::where('title', trim($input))->first();
+        if ($category) {
+            return $category->id;
         }
 
         return null;
@@ -391,18 +491,17 @@ class MartSubcategoryController extends Controller
             $sheet = $spreadsheet->createSheet();
             $sheet->setTitle('Mart Sub-Categories Import');
             
-            // Set headers with proper formatting - matching create form fields
-            // Field order matches the create form: title, description, photo, subcategory_order, parent_category_id, publish, show_in_homepage, mart_id, review_attributes
+            // Set headers
             $headers = [
-                'A1' => 'title',                    // Sub-Category Name (required)
-                'B1' => 'description',              // Sub-Category Description
-                'C1' => 'photo',                    // Sub-Category Image (media name/slug/URL)
-                'D1' => 'subcategory_order',        // Display order within parent category
-                'E1' => 'parent_category_id',       // Parent Category ID or Name
-                'F1' => 'publish',                  // Publish status (true/false)
-                'G1' => 'show_in_homepage',         // Show in homepage (true/false)
-                'H1' => 'mart_id',                  // Mart ID (leave empty for general sub-categories)
-                'I1' => 'review_attributes'         // Review attributes (comma-separated)
+                'A1' => 'title',
+                'B1' => 'description',
+                'C1' => 'photo',
+                'D1' => 'subcategory_order',
+                'E1' => 'parent_category_id',
+                'F1' => 'publish',
+                'G1' => 'show_in_homepage',
+                'H1' => 'mart_id',
+                'I1' => 'review_attributes'
             ];
 
             // Set header values with bold formatting
@@ -411,27 +510,25 @@ class MartSubcategoryController extends Controller
                 $sheet->getStyle($cell)->getFont()->setBold(true);
             }
 
-            // Add sample data rows with helpful examples showing advanced media integration
+            // Add sample data rows
             $sampleData = [
-                // Row 2 - Example sub-category with media slug
                 'A2' => 'Sample Sub-Category 1',
                 'B2' => 'Sample description for sub-category 1',
-                'C2' => 'sample-media-slug',
+                'C2' => 'https://example.com/image.jpg',
                 'D2' => '1',
                 'E2' => 'Groceries',
                 'F2' => 'true',
                 'G2' => 'false',
-                'H2' => '', // mart_id - leave empty for general sub-categories
+                'H2' => '',
                 'I2' => 'quality,freshness',
-                // Row 3 - Another example sub-category with direct URL
                 'A3' => 'Sample Sub-Category 2',
                 'B3' => 'Sample description for sub-category 2',
-                'C3' => 'https://firebasestorage.googleapis.com/example-image.jpg',
+                'C3' => 'https://example.com/image2.jpg',
                 'D3' => '2',
                 'E3' => 'Medicine',
                 'F3' => 'true',
                 'G3' => 'false',
-                'H3' => '', // mart_id - leave empty for general sub-categories
+                'H3' => '',
                 'I3' => 'quality,freshness'
             ];
 
@@ -439,21 +536,21 @@ class MartSubcategoryController extends Controller
                 $sheet->setCellValue($cell, $value);
             }
 
-            // Set column widths manually for better compatibility
-            $sheet->getColumnDimension('A')->setWidth(20); // title
-            $sheet->getColumnDimension('B')->setWidth(25); // description
-            $sheet->getColumnDimension('C')->setWidth(20); // photo
-            $sheet->getColumnDimension('D')->setWidth(15); // subcategory_order
-            $sheet->getColumnDimension('E')->setWidth(25); // parent_category_id
-            $sheet->getColumnDimension('F')->setWidth(10); // publish
-            $sheet->getColumnDimension('G')->setWidth(15); // show_in_homepage
-            $sheet->getColumnDimension('H')->setWidth(15); // mart_id
-            $sheet->getColumnDimension('I')->setWidth(25); // review_attributes
+            // Set column widths
+            $sheet->getColumnDimension('A')->setWidth(20);
+            $sheet->getColumnDimension('B')->setWidth(25);
+            $sheet->getColumnDimension('C')->setWidth(20);
+            $sheet->getColumnDimension('D')->setWidth(15);
+            $sheet->getColumnDimension('E')->setWidth(25);
+            $sheet->getColumnDimension('F')->setWidth(10);
+            $sheet->getColumnDimension('G')->setWidth(15);
+            $sheet->getColumnDimension('H')->setWidth(15);
+            $sheet->getColumnDimension('I')->setWidth(25);
 
             // Add borders to header row
             $sheet->getStyle('A1:I1')->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
 
-            // Create writer with proper options
+            // Create writer
             $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
             $writer->setPreCalculateFormulas(false);
             $writer->setIncludeCharts(false);
@@ -467,7 +564,7 @@ class MartSubcategoryController extends Controller
             // Save the file
             $writer->save($filePath);
             
-            // Verify file was created and has content
+            // Verify file was created
             if (!file_exists($filePath) || filesize($filePath) < 1000) {
                 throw new \Exception('Generated file is too small or corrupted');
             }

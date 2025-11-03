@@ -26,6 +26,24 @@ class CategoryController extends Controller
      public function edit($id)
     {
         $category = VendorCategory::find($id);
+        
+        // If not found in vendor_categories, check if it's a mart category
+        if (!$category) {
+            \Log::warning("Category not found in vendor_categories: $id");
+            
+            // Check if this is a mart category
+            $martCategory = DB::table('mart_categories')->where('id', $id)->first();
+            if ($martCategory) {
+                \Log::info("Found in mart_categories, redirecting...");
+                // Redirect to mart-categories edit page
+                return redirect()->route('mart-categories.edit', $id)
+                    ->with('message', 'This is a Mart Category. Redirected to correct page.');
+            }
+            
+            // Not found in either table
+            abort(404, 'Category not found in either vendor_categories or mart_categories');
+        }
+        
         return view('categories.edit', ['id' => $id, 'category' => $category]);
     }
 

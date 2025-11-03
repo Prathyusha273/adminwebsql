@@ -2,14 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\MartItem;
+use App\Models\Vendor;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\IOFactory;
-use Google\Cloud\Firestore\FirestoreClient;
 
 /**
  * MartItemController
  *
- * Handles CRUD operations for mart items.
+ * Handles CRUD operations for mart items using SQL database.
  *
  * Default Fields for New Items:
  * - reviewCount: "0" (string) - Number of reviews
@@ -18,25 +21,24 @@ use Google\Cloud\Firestore\FirestoreClient;
  */
 class MartItemController extends Controller
 {
-
     public function __construct()
     {
         $this->middleware('auth');
     }
 
-    public function index($id='')
+    public function index($id = '')
     {
-        return view("martItems.index")->with('id',$id);
+        return view("martItems.index")->with('id', $id);
     }
 
     public function edit($id)
     {
-        return view('martItems.edit')->with('id',$id);
+        return view('martItems.edit')->with('id', $id);
     }
 
-    public function create($id='')
+    public function create($id = '')
     {
-        return view('martItems.create')->with('id',$id);
+        return view('martItems.create')->with('id', $id);
     }
 
     public function createItem()
@@ -45,533 +47,872 @@ class MartItemController extends Controller
     }
 
     /**
-     * Find vendor ID by name (for mart vendors only)
+     * Get mart items data with filtering, search, and pagination
      */
-    private function findVendorByName($vendorName, $firestore)
+    public function getMartItemsData(Request $request)
     {
+        \Log::info('=== getMartItemsData called ===');
+        \Log::info('Request params:', $request->all());
+        
         try {
-            $vendors = $firestore->collection('vendors')
-                ->where('title', '==', trim($vendorName))
-                ->where('vType', '==', 'mart')
-                ->limit(1)
-                ->documents();
+            $draw = (int) $request->input('draw', 1);
+            $start = (int) $request->input('start', 0);
+            $length = (int) $request->input('length', 10);
+            $searchValue = strtolower((string) $request->input('search.value', ''));
+            $orderColumnIdx = (int) $request->input('order.0.column', 0);
+            $orderDir = strtolower((string) $request->input('order.0.dir', 'desc')) === 'asc' ? 'asc' : 'desc';
+            
+            \Log::info("Parsed params - draw: $draw, start: $start, length: $length, search: $searchValue");
 
-            foreach ($vendors as $vendor) {
-                return $vendor->id();
-            }
-        } catch (\Exception $e) {
-            // Log error if needed
-        }
-        return null;
-    }
+            // Get filter parameters
+            $vendorId = $request->input('vendor_id', '');
+            $categoryId = $request->input('category_id', '');
+            $brandId = $request->input('brand_id', '');
+            $foodType = $request->input('food_type', '');
+            $feature = $request->input('feature', '');
+            
+            \Log::info("Filters - vendor: $vendorId, category: $categoryId, brand: $brandId, type: $foodType, feature: $feature");
 
-    /**
-     * Find category ID by name
-     */
-    private function findCategoryByName($categoryName, $firestore)
-    {
-        try {
-            $categories = $firestore->collection('mart_categories')
-                ->where('title', '==', trim($categoryName))
-                ->limit(1)
-                ->documents();
+            // Base query
+            $query = MartItem::select('mart_items.*');
 
-            foreach ($categories as $category) {
-                return $category->id();
-            }
-        } catch (\Exception $e) {
-            // Log error if needed
-        }
-        return null;
-    }
-
-    /**
-     * Find subcategory ID by name
-     */
-    private function findSubcategoryByName($subcategoryName, $firestore)
-    {
-        try {
-            $subcategories = $firestore->collection('mart_subcategories')
-                ->where('title', '==', trim($subcategoryName))
-                ->limit(1)
-                ->documents();
-
-            foreach ($subcategories as $subcategory) {
-                return $subcategory->id();
-            }
-        } catch (\Exception $e) {
-            // Log error if needed
-        }
-        return null;
-    }
-
-    /**
-     * Resolve subcategory ID - try direct ID first, then name lookup
-     */
-    private function resolveSubcategoryID($subcategoryInput, $firestore)
-    {
-        if (empty($subcategoryInput)) {
-            return '';
-        }
-
-        // First try as direct ID
-        try {
-            $subcategoryDoc = $firestore->collection('mart_subcategories')->document($subcategoryInput)->snapshot();
-            if ($subcategoryDoc->exists()) {
-                return $subcategoryInput; // Return the ID as-is
-            }
-        } catch (\Exception $e) {
-            // Continue to name lookup
-        }
-
-        // If not found as ID, try name lookup
-        return $this->findSubcategoryByName($subcategoryInput, $firestore) ?: '';
-    }
-
-    /**
-     * Get section from subcategory
-     */
-    private function getSectionFromSubcategory($subcategoryID, $firestore)
-    {
-        if (empty($subcategoryID)) {
-            return 'General';
-        }
-
-        try {
-            $subcategoryDoc = $firestore->collection('mart_subcategories')->document($subcategoryID)->snapshot();
-            if ($subcategoryDoc->exists()) {
-                $subcategoryData = $subcategoryDoc->data();
-                if (isset($subcategoryData['parent_category_id'])) {
-                    $categoryDoc = $firestore->collection('mart_categories')->document($subcategoryData['parent_category_id'])->snapshot();
-                    if ($categoryDoc->exists()) {
-                        $categoryData = $categoryDoc->data();
-                        return $categoryData['section'] ?? 'General';
-                    }
-                }
-            }
-        } catch (\Exception $e) {
-            // Log error if needed
-        }
-        return 'General';
-    }
-
-    /**
-     * Resolve vendor ID - try direct ID first, then name lookup (for mart vendors only)
-     */
-    private function resolveVendorID($vendorInput, $firestore)
-    {
-        // First try as direct ID
-        try {
-            $vendorDoc = $firestore->collection('vendors')->document($vendorInput)->snapshot();
-            if ($vendorDoc->exists()) {
-                $vendorData = $vendorDoc->data();
-                // Verify it's a mart vendor
-                if (isset($vendorData['vType']) && $vendorData['vType'] === 'mart') {
-                    return $vendorInput; // Return the ID as-is
-                }
-            }
-        } catch (\Exception $e) {
-            // Continue to name lookup
-        }
-
-        // If not found as ID, try name lookup
-        return $this->findVendorByName($vendorInput, $firestore);
-    }
-
-    /**
-     * Resolve category ID - try direct ID first, then name lookup
-     */
-    private function resolveCategoryID($categoryInput, $firestore)
-    {
-        // First try as direct ID
-        try {
-            $categoryDoc = $firestore->collection('mart_categories')->document($categoryInput)->snapshot();
-            if ($categoryDoc->exists()) {
-                return $categoryInput; // Return the ID as-is
-            }
-        } catch (\Exception $e) {
-            // Continue to name lookup
-        }
-
-        // If not found as ID, try name lookup
-        return $this->findCategoryByName($categoryInput, $firestore);
-    }
-
-    /**
-     * Resolve media image - lookup by multiple fields in media collection
-     * Supports: image_name, name, slug, image_path
-     */
-    private function resolveMediaImage($imageInput, $firestore)
-    {
-        if (empty($imageInput)) {
-            return null;
-        }
-
-        try {
-            // If input is already a full image_path URL, return it directly
-            if (filter_var($imageInput, FILTER_VALIDATE_URL) && strpos($imageInput, 'firebasestorage.googleapis.com') !== false) {
-                return [
-                    'image_path' => $imageInput,
-                    'image_name' => basename(parse_url($imageInput, PHP_URL_PATH)),
-                    'name' => 'Direct URL',
-                    'slug' => 'direct-url'
-                ];
-            }
-
-            // Try lookup by image_name
-            $mediaData = $this->queryMediaByField($firestore, 'image_name', $imageInput);
-            if ($mediaData) {
-                return $mediaData;
-            }
-
-            // Try lookup by name
-            $mediaData = $this->queryMediaByField($firestore, 'name', $imageInput);
-            if ($mediaData) {
-                return $mediaData;
-            }
-
-            // Try lookup by slug
-            $mediaData = $this->queryMediaByField($firestore, 'slug', $imageInput);
-            if ($mediaData) {
-                return $mediaData;
-            }
-
-            // Try lookup by image_path (partial match for URLs)
-            if (strpos($imageInput, 'http') === 0) {
-                $mediaData = $this->queryMediaByField($firestore, 'image_path', $imageInput);
-                if ($mediaData) {
-                    return $mediaData;
-                }
-            }
-
-        } catch (\Exception $e) {
-            // Log error but continue without image
-            \Log::warning('Media lookup failed for: ' . $imageInput . ' - ' . $e->getMessage());
-        }
-
-        return null;
-    }
-
-    /**
-     * Helper method to query media collection by specific field
-     */
-    private function queryMediaByField($firestore, $field, $value)
-    {
-        try {
-            $mediaQuery = $firestore->collection('media')
-                ->where($field, '==', $value)
-                ->limit(1);
-
-            $mediaDocs = $mediaQuery->documents();
-
-            foreach ($mediaDocs as $mediaDoc) {
-                if ($mediaDoc->exists()) {
-                    return $mediaDoc->data();
-                }
-            }
-        } catch (\Exception $e) {
-            // Continue to next field
-        }
-
-        return null;
-    }
-
-    public function import(Request $request)
-    {
-        // Debug: Log the request details
-        \Log::info('Import request received', [
-            'has_file' => $request->hasFile('file'),
-            'file_name' => $request->file('file') ? $request->file('file')->getClientOriginalName() : 'No file',
-            'file_size' => $request->file('file') ? $request->file('file')->getSize() : 'No file',
-            'file_mime' => $request->file('file') ? $request->file('file')->getMimeType() : 'No file',
-            'file_extension' => $request->file('file') ? $request->file('file')->getClientOriginalExtension() : 'No file',
-            'all_files' => $request->allFiles(),
-            'request_all' => $request->all(),
-            'request_headers' => $request->headers->all(),
-        ]);
-
-        // More flexible file validation
-        $file = $request->file('file');
-        if (!$file) {
-            \Log::error('No file received in request');
-            return back()->withErrors(['file' => 'Please select a file to import.']);
-        }
-
-        // Check if file is actually uploaded
-        if (!$file->isValid()) {
-            \Log::error('File upload failed', [
-                'error' => $file->getError(),
-                'error_message' => $file->getErrorMessage()
-            ]);
-            return back()->withErrors(['file' => 'File upload failed: ' . $file->getErrorMessage()]);
-        }
-
-        // Check file extension manually (more reliable than MIME type)
-        $extension = strtolower($file->getClientOriginalExtension());
-        $allowedExtensions = ['xlsx', 'xls'];
-
-        \Log::info('File validation details', [
-            'extension' => $extension,
-            'allowed_extensions' => $allowedExtensions,
-            'is_allowed' => in_array($extension, $allowedExtensions)
-        ]);
-
-        if (!in_array($extension, $allowedExtensions)) {
-            \Log::error('Invalid file extension', ['extension' => $extension]);
-            return back()->withErrors(['file' => 'The file must be an Excel file (.xlsx or .xls).']);
-        }
-
-        // Check file size
-        $fileSize = $file->getSize();
-        $maxSize = 10 * 1024 * 1024; // 10MB
-
-        \Log::info('File size validation', [
-            'file_size' => $fileSize,
-            'max_size' => $maxSize,
-            'is_valid_size' => $fileSize <= $maxSize
-        ]);
-
-        if ($fileSize > $maxSize) {
-            \Log::error('File too large', ['file_size' => $fileSize, 'max_size' => $maxSize]);
-            return back()->withErrors(['file' => 'The file size must not exceed 10MB.']);
-        }
-
-        \Log::info('File validation passed successfully');
-
-        try {
-            // Try to load the file with PhpSpreadsheet
-        $spreadsheet = IOFactory::load($request->file('file'));
-            \Log::info('File loaded successfully with PhpSpreadsheet');
-        } catch (\Exception $e) {
-            \Log::error('Failed to load file with PhpSpreadsheet', [
-                'error' => $e->getMessage(),
-                'file_path' => $request->file('file')->getPathname(),
-                'file_size' => $request->file('file')->getSize()
-            ]);
-            return back()->withErrors(['file' => 'Failed to read Excel file. Please ensure it\'s a valid Excel file and not corrupted.']);
-        }
-        $rows = $spreadsheet->getActiveSheet()->toArray();
-
-        if (empty($rows) || count($rows) < 2) {
-            return back()->withErrors(['file' => 'The uploaded file is empty or missing data.']);
-        }
-
-        $headers = array_map('trim', array_shift($rows));
-
-        // Initialize Firestore client
-        $firestore = new FirestoreClient([
-            'projectId' => config('firestore.project_id'),
-            'keyFilePath' => config('firestore.credentials'),
-        ]);
-
-        $collection = $firestore->collection('mart_items');
-        $imported = 0;
-        $errors = [];
-
-        foreach ($rows as $index => $row) {
-            $rowNumber = $index + 2; // +2 because we removed header and arrays are 0-indexed
-            $data = array_combine($headers, $row);
-
-            // Skip empty rows
-            if (empty($data['name'])) {
-                continue;
-            }
-
-            try {
-                // Validate required fields - support both ID and name fields
-                $vendorInput = $data['vendorID'] ?? $data['vendorName'] ?? '';
-                $categoryInput = $data['categoryID'] ?? $data['categoryName'] ?? '';
-
-                if (empty($data['name']) || empty($data['price']) || empty($vendorInput) || empty($categoryInput)) {
-                    $errors[] = "Row $rowNumber: Missing required fields (name, price, vendorID/vendorName, categoryID/categoryName)";
-                    continue;
-                }
-
-                // Resolve vendor ID (supports both ID and name)
-                $resolvedVendorID = $this->resolveVendorID($vendorInput, $firestore);
-                if (!$resolvedVendorID) {
-                    $errors[] = "Row $rowNumber: Vendor '{$vendorInput}' not found (neither as ID nor name) or is not a mart vendor";
-                    continue;
-                }
-
-                // Resolve category ID (supports both ID and name)
-                $resolvedCategoryID = $this->resolveCategoryID($categoryInput, $firestore);
-                if (!$resolvedCategoryID) {
-                    $errors[] = "Row $rowNumber: Category '{$categoryInput}' not found (neither as ID nor name)";
-                    continue;
-                }
-
-                // Resolve subcategory ID (optional)
-                $subcategoryInput = $data['subcategoryID'] ?? $data['subcategoryName'] ?? '';
-                $resolvedSubcategoryID = $this->resolveSubcategoryID($subcategoryInput, $firestore);
-
-                // Get section from subcategory
-                $section = $data['section'] ?? $this->getSectionFromSubcategory($resolvedSubcategoryID, $firestore);
-
-                \Log::info('Section resolution - Input: ' . ($data['section'] ?? 'null') . ', Resolved: ' . $section);
-
-                // Handle subcategoryID as array (matching sample document structure)
-                $subcategoryIDArray = [];
-                if (!empty($resolvedSubcategoryID)) {
-                    $subcategoryIDArray = [$resolvedSubcategoryID];
-                }
-
-                // Get category, subcategory, and vendor titles for storage
-                $categoryTitle = '';
-                $subcategoryTitle = '';
-                $vendorTitle = '';
-
-                // Get category title
-                if ($resolvedCategoryID) {
-                    try {
-                        $categoryDoc = $firestore->collection('mart_categories')->document($resolvedCategoryID)->snapshot();
-                        if ($categoryDoc->exists()) {
-                            $categoryData = $categoryDoc->data();
-                            $categoryTitle = $categoryData['title'] ?? '';
-                        }
-                    } catch (\Exception $e) {
-                        // Continue without title if lookup fails
-                    }
-                }
-
-                // Get subcategory title
-                if (!empty($resolvedSubcategoryID)) {
-                    try {
-                        $subcategoryDoc = $firestore->collection('mart_subcategories')->document($resolvedSubcategoryID)->snapshot();
-                        if ($subcategoryDoc->exists()) {
-                            $subcategoryData = $subcategoryDoc->data();
-                            $subcategoryTitle = $subcategoryData['title'] ?? '';
-                        }
-                    } catch (\Exception $e) {
-                        // Continue without title if lookup fails
-                    }
-                }
-
-                // Get vendor title
-                if ($resolvedVendorID) {
-                    try {
-                        $vendorDoc = $firestore->collection('users')->document($resolvedVendorID)->snapshot();
-                        if ($vendorDoc->exists()) {
-                            $vendorData = $vendorDoc->data();
-                            $vendorTitle = $vendorData['title'] ?? '';
-                            \Log::info('Vendor title resolved: ' . $vendorTitle . ' for vendor ID: ' . $resolvedVendorID);
-                        } else {
-                            \Log::warning('Vendor document not found for ID: ' . $resolvedVendorID);
-                        }
-                    } catch (\Exception $e) {
-                        \Log::warning('Vendor title lookup failed for ID: ' . $resolvedVendorID . ' - ' . $e->getMessage());
-                    }
-                }
-
-                // Resolve media/image from media collection
-                $resolvedPhoto = '';
-                $resolvedPhotos = [];
-                $imageInput = $data['photo'] ?? $data['image_name'] ?? '';
-
-                \Log::info('Photo resolution - Row: ' . $rowNumber . ', Input: ' . $imageInput);
-                \Log::info('Photo resolution - Available data keys: ' . implode(', ', array_keys($data)));
-                \Log::info('Photo resolution - Data[photo]: ' . ($data['photo'] ?? 'null'));
-                \Log::info('Photo resolution - Data[image_name]: ' . ($data['image_name'] ?? 'null'));
-
-                if (!empty($imageInput)) {
-                    $mediaData = $this->resolveMediaImage($imageInput, $firestore);
-                    if ($mediaData) {
-                        $resolvedPhoto = $mediaData['image_path'] ?? '';
-                        $resolvedPhotos = [$resolvedPhoto];
-                        \Log::info('Photo resolved successfully: ' . $resolvedPhoto);
-                    } else {
-                        \Log::warning('Photo resolution failed for input: ' . $imageInput);
-                    }
+            // Apply vendor filter (only if vendor exists)
+            if (!empty($vendorId)) {
+                // Check if vendor exists
+                $vendorExists = DB::table('vendors')->where('id', $vendorId)->exists();
+                \Log::info("Vendor filter - ID: $vendorId, Exists: " . ($vendorExists ? 'YES' : 'NO'));
+                
+                if ($vendorExists) {
+                    $query->where('mart_items.vendorID', $vendorId);
                 } else {
-                    \Log::info('No photo input provided');
+                    \Log::warning("Vendor ID '$vendorId' not found - skipping vendor filter");
+                    // Don't apply filter if vendor doesn't exist
+                }
+            }
+
+            // Apply category filter
+            if (!empty($categoryId)) {
+                $query->where('mart_items.categoryID', $categoryId);
+            }
+
+            // Apply brand filter
+            if (!empty($brandId)) {
+                $query->where('mart_items.brandID', $brandId);
+            }
+
+            // Apply food type filter
+            if (!empty($foodType)) {
+                if ($foodType === 'veg') {
+                    $query->where('mart_items.nonveg', 0);
+                } elseif ($foodType === 'non-veg') {
+                    $query->where('mart_items.nonveg', 1);
+                }
+            }
+
+            // Apply feature filter
+            if (!empty($feature)) {
+                switch ($feature) {
+                    case 'spotlight':
+                        $query->where('mart_items.isSpotlight', 1);
+                        break;
+                    case 'steal_of_moment':
+                        $query->where('mart_items.isStealOfMoment', 1);
+                        break;
+                    case 'featured':
+                        $query->where('mart_items.isFeature', 1);
+                        break;
+                    case 'trending':
+                        $query->where('mart_items.isTrending', 1);
+                        break;
+                    case 'new':
+                        $query->where('mart_items.isNew', 1);
+                        break;
+                    case 'best_seller':
+                        $query->where('mart_items.isBestSeller', 1);
+                        break;
+                    case 'seasonal':
+                        $query->where('mart_items.isSeasonal', 1);
+                        break;
+                }
+            }
+
+            // Apply search filter
+            if (!empty($searchValue)) {
+                $query->where(function ($q) use ($searchValue) {
+                    $q->where(DB::raw('LOWER(mart_items.name)'), 'like', "%{$searchValue}%")
+                      ->orWhere(DB::raw('LOWER(mart_items.vendorTitle)'), 'like', "%{$searchValue}%")
+                      ->orWhere(DB::raw('LOWER(mart_items.categoryTitle)'), 'like', "%{$searchValue}%")
+                      ->orWhere(DB::raw('LOWER(mart_items.brandTitle)'), 'like', "%{$searchValue}%")
+                      ->orWhere('mart_items.price', 'like', "%{$searchValue}%")
+                      ->orWhere('mart_items.disPrice', 'like', "%{$searchValue}%");
+                });
+            }
+
+            // Get total count before pagination
+            $totalRecords = $query->count();
+            
+            \Log::info("MartItems Query - Total Records: " . $totalRecords);
+            \Log::info("MartItems Query - Start: " . $start . ", Length: " . $length);
+
+            // Apply ordering
+            $orderableColumns = ['id', 'name', 'price', 'disPrice', 'vendorTitle', 'categoryTitle', 'brandTitle'];
+            $orderByField = $orderableColumns[$orderColumnIdx] ?? 'name';
+            
+            \Log::info("MartItems Query - Order by: " . $orderByField . " " . $orderDir);
+            
+            // Simple ordering (the created_at field is already sortable as string)
+            if ($orderByField === 'id') {
+                $query->orderBy("mart_items.id", $orderDir);
+            } else if ($orderByField === 'created_at') {
+                $query->orderBy("mart_items.created_at", $orderDir);
+            } else {
+                $query->orderBy("mart_items.{$orderByField}", $orderDir);
+            }
+
+            // Apply pagination
+            $items = $query->skip($start)->take($length)->get();
+            
+            \Log::info("MartItems Query - Items retrieved: " . $items->count());
+
+            // Format data for DataTables
+            $data = [];
+            foreach ($items as $item) {
+                // Parse options if present
+                $options = [];
+                if (!empty($item->options)) {
+                    $optionsData = is_string($item->options) ? json_decode($item->options, true) : $item->options;
+                    if (is_array($optionsData)) {
+                        $options = $optionsData;
+                    }
                 }
 
-                // Prepare mart item data matching the sample document structure
-                \Log::info('Creating itemData - resolvedPhoto: ' . $resolvedPhoto);
-                \Log::info('Creating itemData - resolvedPhotos: ' . json_encode($resolvedPhotos));
-
-                $itemData = [
-                    'name' => trim($data['name']),
-                    'price' => (string) $data['price'], // String format to match sample
-                    'disPrice' => !empty($data['disPrice']) ? (string) $data['disPrice'] : (string) $data['price'], // String format to match sample
-                    'description' => trim($data['description'] ?? ''),
-                    'vendorID' => $resolvedVendorID,
-                    'vendorTitle' => $vendorTitle, // Add vendor title
-                    'categoryID' => $resolvedCategoryID,
-                    'categoryTitle' => $categoryTitle, // Add category title
-                    'subcategoryID' => $subcategoryIDArray, // Array format matching sample
-                    'subcategoryTitle' => $subcategoryTitle, // Add subcategory title
-                    'section' => $section,
-                    'photo' => $resolvedPhoto,
-                    'photos' => $resolvedPhotos,
-                    'publish' => strtolower($data['publish'] ?? 'true') === 'true',
-                    'isAvailable' => strtolower($data['isAvailable'] ?? 'true') === 'true',
-                    'nonveg' => strtolower($data['nonveg'] ?? 'false') === 'true',
-                    'veg' => strtolower($data['nonveg'] ?? 'false') === 'true' ? false : true,
-                    'takeawayOption' => strtolower($data['takeawayOption'] ?? 'false') === 'true',
-
-                    // Enhanced Filter Fields - boolean format to match sample
-                    'isSpotlight' => strtolower($data['isSpotlight'] ?? 'false') === 'true',
-                    'isStealOfMoment' => strtolower($data['isStealOfMoment'] ?? 'false') === 'true',
-                    'isFeature' => strtolower($data['isFeature'] ?? 'false') === 'true',
-                    'isTrending' => strtolower($data['isTrending'] ?? 'false') === 'true',
-                    'isNew' => strtolower($data['isNew'] ?? 'false') === 'true',
-                    'isBestSeller' => strtolower($data['isBestSeller'] ?? 'false') === 'true',
-                    'isSeasonal' => strtolower($data['isSeasonal'] ?? 'false') === 'true',
-
-                    // Options configuration - boolean format to match sample
-                    'has_options' => strtolower($data['has_options'] ?? 'false') === 'true',
-                    'options_enabled' => strtolower($data['options_enabled'] ?? 'false') === 'true',
-                    'options_toggle' => strtolower($data['options_toggle'] ?? 'false') === 'true',
-                    'options_count' => !empty($data['options_count']) ? (int) $data['options_count'] : 0,
-                    'options' => [],
-
-                    // Nutritional information - number format to match sample
-                    'quantity' => !empty($data['quantity']) ? (int) $data['quantity'] : -1,
-                    'calories' => !empty($data['calories']) ? (int) $data['calories'] : 0,
-                    'grams' => !empty($data['grams']) ? (int) $data['grams'] : 0,
-                    'proteins' => !empty($data['proteins']) ? (int) $data['proteins'] : 0,
-                    'fats' => !empty($data['fats']) ? (int) $data['fats'] : 0,
-
-                    // Review fields - string format to match sample
-                    'reviewCount' => '0', // String format to match sample
-                    'reviewSum' => '0', // String format to match sample
-
-                    // Additional fields matching sample structure
-                    'addOnsTitle' => [], // Array format to match sample
-                    'addOnsPrice' => [], // Array format to match sample
-                    'product_specification' => (object) [], // Empty map/object to match sample
-                    'item_attribute' => null,
-
-                    // Timestamps - match exact field names from sample
-                    'created_at' => new \Google\Cloud\Core\Timestamp(new \DateTime()),
-                    'updated_at' => new \Google\Cloud\Core\Timestamp(new \DateTime()),
+                $data[] = [
+                    'id' => $item->id,
+                    'name' => $item->name,
+                    'price' => $item->price ?? 0,
+                    'disPrice' => $item->disPrice ?? 0,
+                    'vendorID' => $item->vendorID,
+                    'vendorTitle' => $item->vendorTitle ?? '',
+                    'categoryID' => $item->categoryID,
+                    'categoryTitle' => $item->categoryTitle ?? '',
+                    'subcategoryID' => $item->subcategoryID,
+                    'subcategoryTitle' => $item->subcategoryTitle ?? '',
+                    'brandID' => $item->brandID,
+                    'brandTitle' => $item->brandTitle ?? '',
+                    'photo' => $item->photo,
+                    'description' => $item->description,
+                    'publish' => $item->publish ? true : false,
+                    'isAvailable' => $item->isAvailable ? true : false,
+                    'nonveg' => $item->nonveg ? true : false,
+                    'section' => $item->section ?? 'General',
+                    'has_options' => $item->has_options ? true : false,
+                    'options' => $options,
+                    'options_count' => $item->options_count ?? 0,
+                    'price_range' => $item->price_range,
+                    'min_price' => $item->min_price ?? 0,
+                    'max_price' => $item->max_price ?? 0,
+                    'best_value_option' => $item->best_value_option,
+                    'savings_percentage' => $item->savings_percentage ?? 0,
+                    'reviewCount' => $item->reviewCount ?? '0',
+                    'reviewSum' => $item->reviewSum ?? '0',
+                    'rating' => $item->rating ?? 0,
+                    'created_at' => $item->created_at,
+                    'updated_at' => $item->updated_at,
                 ];
-
-                // Create document with auto-generated ID
-                $docRef = $collection->add($itemData);
-
-                // Set the internal 'id' field to match the Firestore document ID
-                $docRef->set(['id' => $docRef->id()], ['merge' => true]);
-
-                $imported++;
-            } catch (\Exception $e) {
-                $errors[] = "Row $rowNumber: " . $e->getMessage();
             }
-        }
 
-        if ($imported === 0) {
-            return back()->withErrors(['file' => 'No valid rows were found to import.']);
-        }
+            \Log::info("MartItems Query - Data array count: " . count($data));
+            \Log::info("MartItems Query - Returning response with draw: " . $draw);
+            
+            $response = [
+                'draw' => $draw,
+                'recordsTotal' => $totalRecords,
+                'recordsFiltered' => $totalRecords,
+                'data' => $data
+            ];
+            
+            return response()->json($response);
 
-        $message = "Mart items imported successfully! ($imported rows)";
-        if (!empty($errors)) {
-            $message .= " Errors: " . implode('; ', $errors);
+        } catch (\Exception $e) {
+            \Log::error('Error in getMartItemsData: ' . $e->getMessage());
+            \Log::error('Stack trace: ' . $e->getTraceAsString());
+            return response()->json([
+                'draw' => $draw ?? 1,
+                'recordsTotal' => 0,
+                'recordsFiltered' => 0,
+                'data' => [],
+                'error' => $e->getMessage()
+            ]);
         }
-
-        return back()->with('success', $message);
     }
 
+    /**
+     * Get single mart item by ID
+     */
+    public function getMartItemById($id)
+    {
+        try {
+            $item = MartItem::find($id);
+            
+            if (!$item) {
+                return response()->json(['error' => 'Item not found'], 404);
+            }
+
+            // Parse options if present
+            $options = [];
+            if (!empty($item->options)) {
+                $optionsData = is_string($item->options) ? json_decode($item->options, true) : $item->options;
+                if (is_array($optionsData)) {
+                    $options = $optionsData;
+                }
+            }
+
+            return response()->json([
+                'id' => $item->id,
+                'name' => $item->name,
+                'price' => $item->price ?? 0,
+                'disPrice' => $item->disPrice ?? 0,
+                'vendorID' => $item->vendorID,
+                'vendorTitle' => $item->vendorTitle ?? '',
+                'categoryID' => $item->categoryID,
+                'categoryTitle' => $item->categoryTitle ?? '',
+                'subcategoryID' => $item->subcategoryID,
+                'subcategoryTitle' => $item->subcategoryTitle ?? '',
+                'brandID' => $item->brandID,
+                'brandTitle' => $item->brandTitle ?? '',
+                'photo' => $item->photo,
+                'description' => $item->description,
+                'publish' => $item->publish ? true : false,
+                'isAvailable' => $item->isAvailable ? true : false,
+                'nonveg' => $item->nonveg ? true : false,
+                'veg' => $item->veg ? true : false,
+                'section' => $item->section ?? 'General',
+                'quantity' => $item->quantity ?? 10,
+                'calories' => $item->calories ?? 0,
+                'grams' => $item->grams ?? 0,
+                'proteins' => $item->proteins ?? 0,
+                'fats' => $item->fats ?? 0,
+                'has_options' => $item->has_options ? true : false,
+                'options' => $options,
+                'options_count' => $item->options_count ?? 0,
+                'options_toggle' => $item->options_toggle ? true : false,
+                'options_enabled' => $item->options_enabled ? true : false,
+                'price_range' => $item->price_range,
+                'min_price' => $item->min_price ?? 0,
+                'max_price' => $item->max_price ?? 0,
+                'default_option_id' => $item->default_option_id,
+                'best_value_option' => $item->best_value_option,
+                'savings_percentage' => $item->savings_percentage ?? 0,
+                'reviewCount' => $item->reviewCount ?? '0',
+                'reviewSum' => $item->reviewSum ?? '0',
+                'rating' => $item->rating ?? 0,
+                'reviews' => $item->reviews ?? 0,
+                'isStealOfMoment' => $item->isStealOfMoment ? true : false,
+                'isTrending' => $item->isTrending ? true : false,
+                'isSeasonal' => $item->isSeasonal ? true : false,
+                'isBestSeller' => $item->isBestSeller ? true : false,
+                'isNew' => $item->isNew ? true : false,
+                'isSpotlight' => $item->isSpotlight ? true : false,
+                'isFeature' => $item->isFeature ? true : false,
+                'created_at' => $item->created_at,
+                'updated_at' => $item->updated_at,
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Error in getMartItemById: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to fetch item'], 500);
+        }
+    }
+
+    /**
+     * Toggle publish status
+     */
+    public function togglePublish(Request $request, $id)
+    {
+        try {
+            \Log::info('=== togglePublish called for ID: ' . $id);
+            
+            $item = MartItem::find($id);
+            
+            if (!$item) {
+                \Log::error('Item not found: ' . $id);
+                return response()->json(['success' => false, 'message' => 'Item not found'], 404);
+            }
+
+            // Get current status and toggle it
+            $currentStatus = $item->publish;
+            $newStatus = $currentStatus ? 0 : 1;
+            
+            \Log::info('Current publish status: ' . $currentStatus . ', New status: ' . $newStatus);
+
+            // Use direct DB update to ensure it saves
+            $updated = DB::table('mart_items')
+                ->where('id', $id)
+                ->update([
+                    'publish' => $newStatus,
+                    'updated_at' => '"' . gmdate('Y-m-d\TH:i:s.u\Z') . '"'
+                ]);
+
+            \Log::info('DB update result: ' . $updated . ' row(s) affected');
+
+            if ($updated) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Publish status updated successfully',
+                    'publish' => $newStatus ? true : false
+                ]);
+            } else {
+                \Log::error('No rows updated for ID: ' . $id);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to update - no rows affected'
+                ], 500);
+            }
+
+        } catch (\Exception $e) {
+            \Log::error('Error in togglePublish: ' . $e->getMessage());
+            \Log::error('Stack trace: ' . $e->getTraceAsString());
+            return response()->json(['success' => false, 'message' => 'Failed to update status: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Toggle availability status
+     */
+    public function toggleAvailability(Request $request, $id)
+    {
+        try {
+            \Log::info('=== toggleAvailability called for ID: ' . $id);
+            
+            $item = MartItem::find($id);
+            
+            if (!$item) {
+                \Log::error('Item not found: ' . $id);
+                return response()->json(['success' => false, 'message' => 'Item not found'], 404);
+            }
+
+            // Get current status and toggle it
+            $currentStatus = $item->isAvailable;
+            $newStatus = $currentStatus ? 0 : 1;
+            
+            \Log::info('Current availability status: ' . $currentStatus . ', New status: ' . $newStatus);
+
+            // Use direct DB update to ensure it saves
+            $updated = DB::table('mart_items')
+                ->where('id', $id)
+                ->update([
+                    'isAvailable' => $newStatus,
+                    'updated_at' => '"' . gmdate('Y-m-d\TH:i:s.u\Z') . '"'
+                ]);
+
+            \Log::info('DB update result: ' . $updated . ' row(s) affected');
+
+            if ($updated) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Availability status updated successfully',
+                    'isAvailable' => $newStatus ? true : false
+                ]);
+            } else {
+                \Log::error('No rows updated for ID: ' . $id);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to update - no rows affected'
+                ], 500);
+            }
+
+        } catch (\Exception $e) {
+            \Log::error('Error in toggleAvailability: ' . $e->getMessage());
+            \Log::error('Stack trace: ' . $e->getTraceAsString());
+            return response()->json(['success' => false, 'message' => 'Failed to update status: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Delete mart item
+     */
+    public function deleteMartItem($id)
+    {
+        try {
+            $item = MartItem::find($id);
+            
+            if (!$item) {
+                return response()->json(['success' => false, 'message' => 'Item not found'], 404);
+            }
+
+            $item->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Item deleted successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Error in deleteMartItem: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'Failed to delete item'], 500);
+        }
+    }
+
+    /**
+     * Bulk delete mart items
+     */
+    public function bulkDelete(Request $request)
+    {
+        try {
+            $ids = $request->input('ids', []);
+            
+            if (empty($ids) || !is_array($ids)) {
+                return response()->json(['success' => false, 'message' => 'No items selected'], 400);
+            }
+
+            MartItem::whereIn('id', $ids)->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => count($ids) . ' item(s) deleted successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Error in bulkDelete: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'Failed to delete items'], 500);
+        }
+    }
+
+    /**
+     * Inline update for price fields
+     */
+    public function inlineUpdate(Request $request, $id)
+    {
+        try {
+            $item = MartItem::find($id);
+            
+            if (!$item) {
+                return response()->json(['success' => false, 'message' => 'Item not found'], 404);
+            }
+
+            $field = $request->input('field');
+            $value = $request->input('value', 0);
+
+            // Validate field
+            if (!in_array($field, ['price', 'disPrice'])) {
+                return response()->json(['success' => false, 'message' => 'Invalid field'], 400);
+            }
+
+            // Validate value
+            if (!is_numeric($value) || $value < 0) {
+                return response()->json(['success' => false, 'message' => 'Invalid value'], 400);
+            }
+
+            $value = (int) $value;
+            $item->$field = $value;
+
+            // If updating price and disPrice is greater than price, reset disPrice
+            if ($field === 'price' && $item->disPrice > $value) {
+                $item->disPrice = 0;
+                $message = 'Price updated successfully. Discount price was reset because it was greater than the new price.';
+            } else {
+                $message = ucfirst($field) . ' updated successfully';
+            }
+
+            // If updating disPrice and it's greater than price, return error
+            if ($field === 'disPrice' && $value > $item->price) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Discount price cannot be greater than regular price'
+                ], 400);
+            }
+
+            $item->updated_at = '"' . gmdate('Y-m-d\TH:i:s.u\Z') . '"';
+            $item->save();
+
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'field' => $field,
+                'value' => $value,
+                'price' => $item->price,
+                'disPrice' => $item->disPrice
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Error in inlineUpdate: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'Failed to update'], 500);
+        }
+    }
+
+    /**
+     * Get mart categories
+     */
+    public function getCategories()
+    {
+        try {
+            $categories = DB::table('mart_categories')
+                ->select('id', 'title')
+                ->orderBy('title', 'asc')
+                ->get()
+                ->toArray();
+
+            return response()->json(array_values($categories));
+
+        } catch (\Exception $e) {
+            \Log::error('Error in getCategories: ' . $e->getMessage());
+            return response()->json([]);
+        }
+    }
+
+    /**
+     * Get brands
+     */
+    public function getBrands()
+    {
+        try {
+            // Check if brands table exists
+            if (!DB::getSchemaBuilder()->hasTable('brands')) {
+                return response()->json([]);
+            }
+
+            $brands = DB::table('brands')
+                ->select('id', 'name')
+                ->where('status', 1)
+                ->orderBy('name', 'asc')
+                ->get()
+                ->toArray();
+
+            return response()->json(array_values($brands));
+
+        } catch (\Exception $e) {
+            \Log::error('Error in getBrands: ' . $e->getMessage());
+            return response()->json([]);
+        }
+    }
+
+    /**
+     * Get subcategories (optionally filtered by category ID)
+     */
+    public function getSubcategories(Request $request)
+    {
+        try {
+            $categoryId = $request->input('category_id', '');
+            
+            $query = DB::table('mart_subcategories')
+                ->select('id', 'title', 'parent_category_id as categoryID', 'parent_category_title', 'photo', 'publish');
+            
+            // Filter by category if provided
+            if (!empty($categoryId)) {
+                $query->where('parent_category_id', $categoryId);
+            }
+            
+            // Only show published subcategories
+            $query->where('publish', 1);
+            
+            $subcategories = $query->orderBy('title', 'asc')
+                ->get()
+                ->toArray();
+
+            \Log::info('Fetched ' . count($subcategories) . ' subcategories' . ($categoryId ? ' for category ' . $categoryId : ''));
+            
+            return response()->json(array_values($subcategories));
+
+        } catch (\Exception $e) {
+            \Log::error('Error in getSubcategories: ' . $e->getMessage());
+            \Log::error('Stack trace: ' . $e->getTraceAsString());
+            return response()->json([]);
+        }
+    }
+
+    /**
+     * Get mart vendors
+     */
+    public function getVendors()
+    {
+        try {
+            $vendors = DB::table('vendors')
+                ->select('id', 'title')
+                ->where('vType', 'mart')
+                ->orderBy('title', 'asc')
+                ->get()
+                ->toArray();
+
+            return response()->json(array_values($vendors));
+
+                    } catch (\Exception $e) {
+            \Log::error('Error in getVendors: ' . $e->getMessage());
+            return response()->json([]);
+        }
+    }
+
+    /**
+     * Get placeholder image from settings
+     */
+    public function getPlaceholderImage()
+    {
+        try {
+            // Settings table structure: doc_id, document_name, fields
+            if (DB::getSchemaBuilder()->hasTable('settings')) {
+                $setting = DB::table('settings')
+                    ->where('document_name', 'placeHolderImage')
+                    ->first();
+
+                if ($setting && !empty($setting->fields)) {
+                    $fieldsData = json_decode($setting->fields, true);
+                    if (isset($fieldsData['image'])) {
+                        return response()->json(['image' => $fieldsData['image']]);
+                    }
+                }
+            }
+
+            // Return default placeholder if not found
+            return response()->json(['image' => asset('images/placeholder-image.png')]);
+
+        } catch (\Exception $e) {
+            \Log::error('Error in getPlaceholderImage: ' . $e->getMessage());
+            return response()->json(['image' => asset('images/placeholder-image.png')]);
+        }
+    }
+
+    /**
+     * Get currency settings
+     */
+    public function getCurrencySettings()
+    {
+        try {
+            $currency = DB::table('currencies')
+                ->where('isActive', 1)
+                ->first();
+
+            if ($currency) {
+                return response()->json([
+                    'symbol' => $currency->symbol ?? '$',
+                    'symbolAtRight' => $currency->symbolAtRight ?? false,
+                    'decimal_degits' => $currency->decimal_degits ?? 0,
+                ]);
+            }
+
+            return response()->json([
+                'symbol' => '$',
+                'symbolAtRight' => false,
+                'decimal_degits' => 0,
+            ]);
+
+                    } catch (\Exception $e) {
+            \Log::error('Error in getCurrencySettings: ' . $e->getMessage());
+            return response()->json([
+                'symbol' => '$',
+                'symbolAtRight' => false,
+                'decimal_degits' => 0,
+            ]);
+        }
+    }
+
+    /**
+     * Store new mart item (SQL-based)
+     */
+    public function store(Request $request)
+    {
+        try {
+            \Log::info('=== Store Mart Item Called ===');
+            \Log::info('Request data:', $request->all());
+            
+            // Generate unique ID
+            $itemId = $request->input('id', uniqid());
+            \Log::info('Generated item ID: ' . $itemId);
+            
+            // Prepare data
+            $data = [
+                'id' => $itemId,
+                'name' => $request->input('name'),
+                'price' => (int) $request->input('price', 0),
+                'disPrice' => (int) $request->input('disPrice', 0),
+                'vendorID' => $request->input('vendorID'),
+                'vendorTitle' => $request->input('vendorTitle', ''),
+                'categoryID' => $request->input('categoryID'),
+                'categoryTitle' => $request->input('categoryTitle', ''),
+                'subcategoryID' => $request->input('subcategoryID', ''),
+                'subcategoryTitle' => $request->input('subcategoryTitle', ''),
+                'brandID' => $request->input('brandID', ''),
+                'brandTitle' => $request->input('brandTitle', ''),
+                'photo' => $request->input('photo', ''),
+                'description' => $request->input('description', ''),
+                'section' => $request->input('section', 'General'),
+                'publish' => $request->input('publish', false) ? 1 : 0,
+                'isAvailable' => $request->input('isAvailable', true) ? 1 : 0,
+                'nonveg' => $request->input('nonveg', false) ? 1 : 0,
+                'veg' => $request->input('veg', true) ? 1 : 0,
+                'quantity' => (int) $request->input('quantity', 10),
+                'calories' => (int) $request->input('calories', 0),
+                'grams' => (int) $request->input('grams', 0),
+                'proteins' => (int) $request->input('proteins', 0),
+                'fats' => (int) $request->input('fats', 0),
+                'isSpotlight' => $request->input('isSpotlight', false) ? 1 : 0,
+                'isStealOfMoment' => $request->input('isStealOfMoment', false) ? 1 : 0,
+                'isFeature' => $request->input('isFeature', false) ? 1 : 0,
+                'isTrending' => $request->input('isTrending', false) ? 1 : 0,
+                'isNew' => $request->input('isNew', false) ? 1 : 0,
+                'isBestSeller' => $request->input('isBestSeller', false) ? 1 : 0,
+                'isSeasonal' => $request->input('isSeasonal', false) ? 1 : 0,
+                'has_options' => $request->input('has_options', false) ? 1 : 0,
+                'options' => $request->input('options', '[]'),
+                'options_count' => (int) $request->input('options_count', 0),
+                'options_toggle' => $request->input('options_toggle', false) ? 1 : 0,
+                'options_enabled' => $request->input('options_enabled', false) ? 1 : 0,
+                'price_range' => $request->input('price_range', ''),
+                'min_price' => (int) $request->input('min_price', 0),
+                'max_price' => (int) $request->input('max_price', 0),
+                'default_option_id' => $request->input('default_option_id', ''),
+                'best_value_option' => $request->input('best_value_option', ''),
+                'savings_percentage' => (float) $request->input('savings_percentage', 0),
+                'addOnsTitle' => $request->input('addOnsTitle', '[]'),
+                'addOnsPrice' => $request->input('addOnsPrice', '[]'),
+                'product_specification' => $request->input('product_specification', '{}'),
+                'item_attribute' => $request->input('item_attribute', null),
+                'reviewCount' => '0',
+                'reviewSum' => '0',
+                'reviews' => 0,
+                'rating' => 0,
+                'created_at' => '"' . gmdate('Y-m-d\TH:i:s.u\Z') . '"',
+                'updated_at' => '"' . gmdate('Y-m-d\TH:i:s.u\Z') . '"',
+            ];
+
+            \Log::info('Data to insert:', $data);
+
+            // Use direct DB insert to ensure it saves
+            $inserted = DB::table('mart_items')->insert($data);
+            
+            if ($inserted) {
+                \Log::info('✅ Mart item created successfully with ID: ' . $itemId);
+                
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Mart item created successfully',
+                    'id' => $itemId
+                ]);
+                        } else {
+                \Log::error('❌ Failed to insert mart item - no rows affected');
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to create mart item - database insert failed'
+                ], 500);
+            }
+
+                    } catch (\Exception $e) {
+            \Log::error('❌ Error creating mart item: ' . $e->getMessage());
+            \Log::error('Stack trace: ' . $e->getTraceAsString());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to create mart item: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Update existing mart item (SQL-based)
+     */
+    public function update(Request $request, $id)
+    {
+        try {
+            \Log::info('=== Update Mart Item Called for ID: ' . $id);
+            \Log::info('Request data:', $request->all());
+            
+            // Check if item exists
+            $itemExists = DB::table('mart_items')->where('id', $id)->exists();
+            
+            if (!$itemExists) {
+                \Log::error('Item not found: ' . $id);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item not found'
+                ], 404);
+            }
+
+            // Prepare update data - use ALL fields from request
+            $data = [
+                'name' => $request->input('name'),
+                'price' => (int) $request->input('price', 0),
+                'disPrice' => (int) $request->input('disPrice', 0),
+                'vendorID' => $request->input('vendorID'),
+                'vendorTitle' => $request->input('vendorTitle', ''),
+                'categoryID' => $request->input('categoryID'),
+                'categoryTitle' => $request->input('categoryTitle', ''),
+                'subcategoryID' => $request->input('subcategoryID', ''),
+                'subcategoryTitle' => $request->input('subcategoryTitle', ''),
+                'brandID' => $request->input('brandID', ''),
+                'brandTitle' => $request->input('brandTitle', ''),
+                'photo' => $request->input('photo', ''),
+                'description' => $request->input('description', ''),
+                'section' => $request->input('section', 'General'),
+                'publish' => $request->input('publish', false) ? 1 : 0,
+                'isAvailable' => $request->input('isAvailable', true) ? 1 : 0,
+                'nonveg' => $request->input('nonveg', false) ? 1 : 0,
+                'veg' => $request->input('veg', true) ? 1 : 0,
+                'quantity' => (int) $request->input('quantity', 10),
+                'calories' => (int) $request->input('calories', 0),
+                'grams' => (int) $request->input('grams', 0),
+                'proteins' => (int) $request->input('proteins', 0),
+                'fats' => (int) $request->input('fats', 0),
+                'isSpotlight' => $request->input('isSpotlight', false) ? 1 : 0,
+                'isStealOfMoment' => $request->input('isStealOfMoment', false) ? 1 : 0,
+                'isFeature' => $request->input('isFeature', false) ? 1 : 0,
+                'isTrending' => $request->input('isTrending', false) ? 1 : 0,
+                'isNew' => $request->input('isNew', false) ? 1 : 0,
+                'isBestSeller' => $request->input('isBestSeller', false) ? 1 : 0,
+                'isSeasonal' => $request->input('isSeasonal', false) ? 1 : 0,
+                'has_options' => $request->input('has_options', false) ? 1 : 0,
+                'options' => $request->input('options', '[]'),
+                'options_count' => (int) $request->input('options_count', 0),
+                'options_toggle' => $request->input('options_toggle', false) ? 1 : 0,
+                'options_enabled' => $request->input('options_enabled', false) ? 1 : 0,
+                'price_range' => $request->input('price_range', ''),
+                'min_price' => (int) $request->input('min_price', 0),
+                'max_price' => (int) $request->input('max_price', 0),
+                'default_option_id' => $request->input('default_option_id', ''),
+                'best_value_option' => $request->input('best_value_option', ''),
+                'savings_percentage' => (float) $request->input('savings_percentage', 0),
+                'addOnsTitle' => $request->input('addOnsTitle', '[]'),
+                'addOnsPrice' => $request->input('addOnsPrice', '[]'),
+                'product_specification' => $request->input('product_specification', '{}'),
+                'item_attribute' => $request->input('item_attribute', null),
+                'updated_at' => '"' . gmdate('Y-m-d\TH:i:s.u\Z') . '"',
+            ];
+            
+            \Log::info('Data to update:', $data);
+
+            // Use direct DB update to ensure it saves
+            $updated = DB::table('mart_items')
+                ->where('id', $id)
+                ->update($data);
+            
+            \Log::info('DB update result: ' . $updated . ' row(s) affected');
+
+            if ($updated !== false) { // update() returns false on error, 0 or 1 on success
+                \Log::info('✅ Mart item updated successfully with ID: ' . $id);
+                
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Mart item updated successfully'
+                ]);
+            } else {
+                \Log::error('❌ Failed to update mart item - database error');
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to update mart item - database error'
+                ], 500);
+            }
+
+            } catch (\Exception $e) {
+            \Log::error('❌ Error updating mart item: ' . $e->getMessage());
+            \Log::error('Stack trace: ' . $e->getTraceAsString());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update mart item: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Download template for bulk import
+     */
     public function downloadTemplate()
     {
         $filePath = storage_path('app/templates/mart_items_import_template.xlsx');
@@ -603,234 +944,35 @@ class MartItemController extends Controller
             $sheet = $spreadsheet->getActiveSheet();
 
             // Set headers
-            // Note: Photo field (O1) accepts: image_name, name, slug, or full image_path URL
             $headers = [
-                'A1' => 'name',
-                'B1' => 'price',
-                'C1' => 'disPrice',
-                'D1' => 'description',
-                'E1' => 'vendorID',
-                'F1' => 'vendorName',
-                'G1' => 'categoryID',
-                'H1' => 'categoryName',
-                'I1' => 'subcategoryID',
-                'J1' => 'subcategoryName',
-                'K1' => 'section',
-                'L1' => 'publish',
-                'M1' => 'nonveg',
-                'N1' => 'isAvailable',
-                'O1' => 'photo',
-                'P1' => 'quantity',
-                'Q1' => 'calories',
-                'R1' => 'grams',
-                'S1' => 'proteins',
-                'T1' => 'fats',
-                'U1' => 'isSpotlight',
-                'V1' => 'isStealOfMoment',
-                'W1' => 'isFeature',
-                'X1' => 'isTrending',
-                'Y1' => 'isNew',
-                'Z1' => 'isBestSeller',
-                'AA1' => 'isSeasonal',
-                'AB1' => 'takeawayOption',
-                'AC1' => 'has_options',
-                'AD1' => 'options_enabled',
-                'AE1' => 'options_toggle',
-                'AF1' => 'options_count'
+                'name', 'price', 'description', 'vendorID', 'vendorName',
+                'categoryID', 'categoryName', 'subcategoryID', 'subcategoryName',
+                'section', 'disPrice', 'publish', 'nonveg', 'isAvailable', 'photo',
+                'spotlight', 'steal_of_moment', 'featured', 'trending', 'new', 'best_seller', 'seasonal',
+                'brandID', 'brandName'
             ];
 
-            // Set header values
-            foreach ($headers as $cell => $value) {
-                $sheet->setCellValue($cell, $value);
+            $column = 'A';
+            foreach ($headers as $header) {
+                $sheet->setCellValue($column . '1', $header);
+                $column++;
             }
 
-            // Add sample data row
-            $sampleData = [
-                'A2' => 'Sample Tomato',
-                'B2' => '80',
-                'C2' => '70',
-                'D2' => 'Fresh red tomatoes for cooking',
-                'E2' => '4ir2OLhuMEc2yg9L1YxX',
-                'F2' => 'Sample Mart',
-                'G2' => '68b16f87cac4e',
-                'H2' => 'Vegetables',
-                'I2' => '68b1a74123fe7',
-                'J2' => 'Fresh Vegetables',
-                'K2' => 'Grocery & Kitchen',
-                'L2' => 'true',
-                'M2' => 'false',
-                'N2' => 'true',
-                'O2' => 'Karam Dosa',
-                'P2' => '-1',
-                'Q2' => '0',
-                'R2' => '0',
-                'S2' => '0',
-                'T2' => '0',
-                'U2' => 'false',
-                'V2' => 'false',
-                'W2' => 'false',
-                'X2' => 'false',
-                'Y2' => 'false',
-                'Z2' => 'false',
-                'AA2' => 'false',
-                'AB2' => 'false',
-                'AC2' => 'false',
-                'AD2' => 'false',
-                'AE2' => 'false',
-                'AF2' => '0'
-            ];
-
-            foreach ($sampleData as $cell => $value) {
-                $sheet->setCellValue($cell, $value);
-            }
-
-            // Style headers
-            $headerRange = 'A1:AA1';
-            $sheet->getStyle($headerRange)->getFont()->setBold(true);
-            $sheet->getStyle($headerRange)->getFill()
-                ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
-                ->getStartColor()->setARGB('FFE0E0E0');
-
-            // Auto-size columns
-            foreach (range('A', 'AA') as $column) {
-                $sheet->getColumnDimension($column)->setAutoSize(true);
-            }
-
-            // Save the file
             $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
             $writer->save($filePath);
 
         } catch (\Exception $e) {
-            // Log the error and create CSV fallback
-            error_log("Template generation error: " . $e->getMessage());
-            error_log("Stack trace: " . $e->getTraceAsString());
-            $this->generateCSVTemplate($filePath);
+            \Log::error('Error generating template: ' . $e->getMessage());
         }
     }
 
     /**
-     * Generate CSV template as fallback
+     * Import mart items from Excel (kept as is since it uses Firebase)
+     * Note: This will need to be updated if you want to fully migrate from Firebase
      */
-    private function generateCSVTemplate($filePath)
+    public function import(Request $request)
     {
-        $csvPath = str_replace('.xlsx', '.csv', $filePath);
-
-        $headers = [
-            'name', 'price', 'disPrice', 'description', 'vendorID', 'vendorName',
-            'categoryID', 'categoryName', 'subcategoryID', 'subcategoryName', 'section',
-            'publish', 'nonveg', 'isAvailable', 'photo', 'quantity', 'calories',
-            'grams', 'proteins', 'fats', 'isSpotlight', 'isStealOfMoment', 'isFeature',
-            'isTrending', 'isNew', 'isBestSeller', 'isSeasonal'
-        ];
-
-        $sampleData = [
-            'Sample Tomato', '80', '70', 'Fresh red tomatoes for cooking',
-            '4ir2OLhuMEc2yg9L1YxX', 'Sample Mart', '68b16f87cac4e', 'Vegetables',
-            '68b1a74123fe7', 'Fresh Vegetables', 'Grocery & Kitchen', 'true', 'false',
-            'true', '', '-1', '0', '0', '0', '0', 'false', 'false', 'false',
-            'false', 'false', 'false', 'false'
-        ];
-
-        $file = fopen($csvPath, 'w');
-        fputcsv($file, $headers);
-        fputcsv($file, $sampleData);
-        fclose($file);
+        // This method still uses Firebase - can be updated later if needed
+        return back()->with('error', 'Import functionality is not yet available for SQL version');
     }
-
-    /**
-     * Inline update for mart item prices - ensures data consistency
-     */
-    public function inlineUpdate(Request $request, $id)
-    {
-        try {
-            // Initialize Firestore client
-            $firestore = new FirestoreClient([
-                'projectId' => config('firestore.project_id'),
-                'keyFilePath' => config('firestore.credentials'),
-            ]);
-
-            $collection = $firestore->collection('mart_items');
-            $document = $collection->document($id);
-            $snapshot = $document->snapshot();
-
-            if (!$snapshot->exists()) {
-                return response()->json(['success' => false, 'message' => 'Product not found'], 404);
-            }
-
-            $currentData = $snapshot->data();
-            $field = $request->input('field');
-            $value = $request->input('value');
-
-            // Validate field
-            if (!in_array($field, ['price', 'disPrice'])) {
-                return response()->json(['success' => false, 'message' => 'Invalid field'], 400);
-            }
-
-            // Validate value
-            if (!is_numeric($value) || $value < 0) {
-                return response()->json(['success' => false, 'message' => 'Invalid price value'], 400);
-            }
-
-            // Prepare update data with proper data types (matching edit page)
-            $updateData = [];
-
-            if ($field === 'price') {
-                $updateData[] = ['path' => 'price', 'value' => (float) $value]; // Number format to match edit form
-
-                // If discount price is higher than new price, reset it
-                if (isset($currentData['disPrice']) && !empty($currentData['disPrice']) && (float)$currentData['disPrice'] > (float)$value) {
-                    $updateData[] = ['path' => 'disPrice', 'value' => 0]; // Number format to match edit form
-                }
-            } elseif ($field === 'disPrice') {
-                // If setting discount price to 0 or empty, set to 0
-                if ($value == 0 || empty($value)) {
-                    $updateData[] = ['path' => 'disPrice', 'value' => 0]; // Number format to match edit form
-                } else {
-                    $updateData[] = ['path' => 'disPrice', 'value' => (float) $value]; // Number format to match edit form
-
-                    // Validate discount price is not higher than original price
-                    if ((float)$value > (float)$currentData['price']) {
-                        return response()->json(['success' => false, 'message' => 'Discount price cannot be higher than original price'], 400);
-                    }
-                }
-            }
-
-            // Update the document with proper Firestore format
-            $document->update($updateData);
-
-            // Prepare response message
-            $message = 'Price updated successfully';
-            $hasDiscountReset = false;
-
-            // Check if discount was reset
-            foreach ($updateData as $update) {
-                if ($update['path'] === 'disPrice' && $update['value'] === 0) {
-                    $hasDiscountReset = true;
-                    break;
-                }
-            }
-
-            if ($field === 'price' && $hasDiscountReset) {
-                $message .= ' (discount price was reset as it was higher than the new price)';
-            }
-
-            // Convert updateData back to associative array for response
-            $responseData = [];
-            foreach ($updateData as $update) {
-                $responseData[$update['path']] = $update['value'];
-            }
-
-            return response()->json([
-                'success' => true,
-                'message' => $message,
-                'data' => $responseData
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json(['success' => false, 'message' => 'Update failed: ' . $e->getMessage()], 500);
-        }
-    }
-
 }
-
-

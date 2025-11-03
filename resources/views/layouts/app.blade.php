@@ -93,6 +93,9 @@
         }
     </script>
 
+    <!-- SQL Settings Loader - Replaces Firebase settings listeners -->
+    <script src="{{ asset('js/settings-loader.js') }}"></script>
+
     <!-- Enhanced Notification Bell Styles -->
     <style>
         .nav-item .fa-bell {
@@ -1735,8 +1738,12 @@
             }
         }
 
-        // Initialize real-time listener for new orders
+        // Initialize real-time listener for new orders - COMPLETELY DISABLED
         function initializeOrderListener() {
+            console.log('ℹ️ Firebase order listener DISABLED - using SQL database for all orders');
+            return; // Exit immediately - no Firebase!
+            
+            /* ENTIRE FIREBASE ORDER LISTENER DISABLED - CODE BELOW COMMENTED OUT
             // Guard: disable if Firebase/database not available
             if (typeof database === 'undefined' || !database || typeof database.collection !== 'function') {
                 return;
@@ -1749,6 +1756,7 @@
                 .limit(50) // Get last 50 orders
                 .get()
                 .then((snapshot) => {
+            */
                     if (!snapshot.empty) {
                         snapshot.docs.forEach(doc => {
                             knownOrderIds.add(doc.id);
@@ -1782,8 +1790,15 @@
                 });
         }
 
-        // Start real-time listener
+        // Start real-time listener - DISABLED (Using SQL database instead)
         function startRealtimeListener() {
+            console.log('ℹ️ Firebase real-time order listener DISABLED - using SQL database');
+            console.log('✅ All order operations now handled via SQL API');
+            
+            // Firebase listener completely disabled - no more real-time connections
+            return;
+            
+            /* FIREBASE LISTENER DISABLED - ALL CODE BELOW COMMENTED OUT
             console.log('🚀 Starting enhanced real-time listener for restaurant_orders collection...');
             console.log('📊 System Status:', {
                 knownOrderIds: knownOrderIds.size,
@@ -1796,6 +1811,7 @@
 
             // Listen for new documents
             ordersRef.onSnapshot((snapshot) => {
+                var disabledSnapshot = function(snapshot) {
                 console.log('📡 Snapshot received, changes:', snapshot.docChanges().length, 'Total docs:', snapshot.docs.length);
                 console.log('🔍 Snapshot metadata:', {
                     fromCache: snapshot.metadata.fromCache,
@@ -2043,9 +2059,12 @@
                                      currentPath.includes('/zone/bonus-settings') ||
                                      currentPath.includes('/test/');
 
-                if (!isSettingsPage && window.ENABLE_REALTIME_NOTIFICATIONS === true) {
-                    initializeOrderListener();
-                }
+                // FIREBASE ORDER LISTENER DISABLED - Using SQL database instead
+                console.log('ℹ️ Real-time order notifications DISABLED - using SQL polling if needed');
+                
+                // if (!isSettingsPage && window.ENABLE_REALTIME_NOTIFICATIONS === true) {
+                //     initializeOrderListener();
+                // }
 
                 initializeTooltip();
                 initializeSoundControls();
