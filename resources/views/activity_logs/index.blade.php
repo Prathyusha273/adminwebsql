@@ -55,7 +55,7 @@
             </ol>
         </div>
     </div>
-    
+
     @if(session('success'))
         <div class="alert alert-success alert-dismissible fade show" role="alert">
             {{ session('success') }}
@@ -112,7 +112,7 @@
                 </div>
             </div>
         </div>
-        
+
         <div class="row">
             <div class="col-12">
                 <div class="card border">
@@ -135,7 +135,7 @@
                                    class="display nowrap table table-hover table-striped table-bordered table table-striped"
                                    cellspacing="0" width="100%">
                                 <thead>
-                                    <tr>                                 
+                                    <tr>
                                         <th>User ID</th>
                                         <th>User Name</th>
                                         <th>User Type</th>
@@ -159,158 +159,79 @@
 <script>
 // Wait for jQuery to be available
 $(document).ready(function() {
-    // Firebase configuration
-    const firebaseConfig = {
-        apiKey: "AIzaSyAf_lICoxPh8qKE1QnVkmQYTFJXKkYmRXU",
-        authDomain: "jippymart-27c08.firebaseapp.com",
-        projectId: "jippymart-27c08",
-        storageBucket: "jippymart-27c08.firebasestorage.app",
-        messagingSenderId: "592427852800",
-        appId: "1:592427852800:web:f74df8ceb2a4b597d1a4e5",
-        measurementId: "G-ZYBQYPZWCF"
-    };
+    let currentModule = '';
 
-    // Initialize Firebase only if not already initialized
-    let db;
-    try {
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-        }
-        db = firebase.firestore();
-        console.log('Firebase initialized successfully');
-    } catch (error) {
-        console.error('Firebase initialization error:', error);
-        return;
+    // Update logs count
+    function updateLogsCount() {
+        $.ajax({
+            url: "{{ route('api.activity-logs.count') }}",
+            method: 'GET',
+            data: { module: currentModule },
+            success: function(response) {
+                if (response.success) {
+                    $('#logs-count').text(response.count);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Error fetching logs count:', error);
+            }
+        });
     }
 
-    let currentModule = '';
-    let initialRef = db.collection('activity_logs').orderBy('created_at', 'desc');
-    
+    // Initial count update
+    updateLogsCount();
+
     // Module filter change
     $('#module-filter').on('change', function() {
         currentModule = $(this).val();
         $('#activityLogsTable').DataTable().ajax.reload();
+        updateLogsCount();
     });
-    
+
     // Refresh button
     $('#refresh-logs').on('click', function() {
         $('#activityLogsTable').DataTable().ajax.reload();
+        updateLogsCount();
     });
 
     // Initialize DataTable with server-side processing
     const table = $('#activityLogsTable').DataTable({
         pageLength: 10,
-        processing: false,
+        processing: true,
         serverSide: true,
         responsive: true,
-        ajax: async function(data, callback, settings) {
-            const start = data.start;
-            const length = data.length;
-            const searchValue = data.search.value.toLowerCase();
-            const orderColumnIndex = data.order[0].column;
-            const orderDirection = data.order[0].dir;
-
-                         const orderableColumns = ['user_name', 'user_type', 'role', 'module', 'action', 'description', 'ip_address', 'timestamp'];
-             const orderByField = orderableColumns[orderColumnIndex];
-
-            let ref = initialRef;
-        if (currentModule) {
-                ref = ref.where('module', '==', currentModule);
+        ajax: {
+            url: "{{ route('api.activity-logs.data') }}",
+            type: 'GET',
+            data: function(d) {
+                d.module = currentModule;
+            },
+            error: function(xhr, error, code) {
+                console.error('DataTables Ajax Error:', error);
+                console.error('Response:', xhr.responseText);
             }
-
-            await ref.get().then(async function(querySnapshot) {
-                if (querySnapshot.empty) {
-                    $('#logs-count').text(0);
-                    callback({
-                        draw: data.draw,
-                        recordsTotal: 0,
-                        recordsFiltered: 0,
-                        data: []
-                    });
-                return;
-            }
-            
-                let records = [];
-                let filteredRecords = [];
-
-                await Promise.all(querySnapshot.docs.map(async (doc) => {
-                    let logData = doc.data();
-                    logData.id = doc.id;
-
-                    if (searchValue) {
-                        if (
-                            (logData.user_id && logData.user_id.toString().toLowerCase().includes(searchValue)) ||
-                            (logData.user_name && logData.user_name.toString().toLowerCase().includes(searchValue)) ||
-                            (logData.user_type && logData.user_type.toString().toLowerCase().includes(searchValue)) ||
-                            (logData.role && logData.role.toString().toLowerCase().includes(searchValue)) ||
-                            (logData.module && logData.module.toString().toLowerCase().includes(searchValue)) ||
-                            (logData.action && logData.action.toString().toLowerCase().includes(searchValue)) ||
-                            (logData.description && logData.description.toString().toLowerCase().includes(searchValue)) ||
-                            (logData.ip_address && logData.ip_address.toString().toLowerCase().includes(searchValue))
-                        ) {
-                            filteredRecords.push(logData);
-                        }
-                    } else {
-                        filteredRecords.push(logData);
-                    }
-                }));
-
-                // Sort records
-                filteredRecords.sort((a, b) => {
-                    let aValue = a[orderByField];
-                    let bValue = b[orderByField];
-
-                    if (orderByField === 'timestamp') {
-                        aValue = a.created_at ? a.created_at.toDate() : new Date(0);
-                        bValue = b.created_at ? b.created_at.toDate() : new Date(0);
-                    } else {
-                        aValue = aValue ? aValue.toString().toLowerCase() : '';
-                        bValue = bValue ? bValue.toString().toLowerCase() : '';
-                    }
-
-                    if (orderDirection === 'asc') {
-                        return aValue > bValue ? 1 : -1;
-                    } else {
-                        return aValue < bValue ? 1 : -1;
-                    }
-                });
-
-                const totalRecords = filteredRecords.length;
-                $('#logs-count').text(totalRecords);
-                const paginatedRecords = filteredRecords.slice(start, start + length);
-
-                await Promise.all(paginatedRecords.map(async (logData) => {
-                    const rowData = await buildLogRow(logData);
-                    records.push(rowData);
-                }));
-
-                callback({
-                    draw: data.draw,
-                    recordsTotal: totalRecords,
-                    recordsFiltered: totalRecords,
-                    data: records
-                });
-            }).catch(function(error) {
-                console.error("Error fetching activity logs:", error);
-                callback({
-                    draw: data.draw,
-                    recordsTotal: 0,
-                    recordsFiltered: 0,
-                    data: []
-                });
-            });
         },
-                 order: [7, 'desc'], // Sort by timestamp descending
-         columnDefs: [
-             {
-                 orderable: false,
-                 targets: [] // No non-orderable columns
-             }
-         ],
+        columns: [
+            { data: 'user_id', name: 'user_id', orderable: true },
+            { data: 'user_name', name: 'user_name', orderable: true },
+            { data: 'user_type', name: 'user_type', orderable: true },
+            { data: 'role', name: 'role', orderable: true },
+            { data: 'module', name: 'module', orderable: true },
+            { data: 'action', name: 'action', orderable: true },
+            { data: 'description', name: 'description', orderable: true },
+            { data: 'created_at', name: 'created_at', orderable: true }
+        ],
+        order: [[7, 'desc']], // Sort by timestamp descending
+        columnDefs: [
+            {
+                orderable: true,
+                targets: '_all'
+            }
+        ],
         "language": {
             "zeroRecords": "{{trans('lang.no_record_found')}}",
             "emptyTable": "{{trans('lang.no_record_found')}}",
-            "processing": ""
+            "processing": '<i class="fa fa-spinner fa-spin fa-3x fa-fw"></i><span class="sr-only">Loading...</span>'
         },
         dom: 'lfrtipB',
         buttons: [
@@ -355,70 +276,7 @@ $(document).ready(function() {
         }
     });
 
-    async function buildLogRow(logData) {
-        const timestamp = logData.created_at ? new Date(logData.created_at.toDate()).toLocaleString() : 'N/A';
-
-        return [
-            // User ID column
-            `<div class="d-flex align-items-center">
-            <div class="bg-light rounded-circle">
-                 <div class="font-weight-bold">${logData.user_id}</div>
-                            </div>
-            </div>`,
-
-            `<div class="d-flex align-items-center">
-               <span class="avatar-sm mr-3">
-                                        <i class="mdi mdi-account"></i>
-                <span class="font-weight-bold">${logData.user_name || 'Unknown User'}</span>
-               </span>
-                </div>`,
-
-            // User Type column
-            `<span class="badge badge-${getUserTypeBadge(logData.user_type)}">${logData.user_type}</span>`,
-
-            // Role column
-            `<span class="badge badge-info">${logData.role}</span>`,
-
-            // Module column
-            `<span class="badge badge-secondary">${logData.module}</span>`,
-
-            // Action column
-            `<span class="badge badge-${getActionBadge(logData.action)}">${logData.action}</span>`,
-
-            // Description column with content
-                `<span class="text-wrap" style="max-width: 500px;">
-                    ${logData.description}
-                </span>`,
-
-            // IP Address column
-            // `<small class="font-weight-semibold">${logData.ip_address}</small>`,
-
-            // Timestamp column
-            `<span class="font-weight-semibold">${timestamp}</span>`
-        ];
-    }
-
-    function getUserTypeBadge(userType) {
-        switch(userType) {
-            case 'admin': return 'primary';
-            case 'merchant': return 'success';
-            case 'driver': return 'warning';
-            case 'customer': return 'info';
-            default: return 'secondary';
-        }
-    }
-
-    function getActionBadge(action) {
-        switch(action) {
-            case 'created': return 'success';
-            case 'updated': return 'warning';
-            case 'deleted': return 'danger';
-            case 'viewed': return 'info';
-            default: return 'secondary';
-        }
-    }
-
-    // Handle expandable description
+    // Handle expandable description (if needed in the future)
     $(document).on('click', '.expand-description', function() {
         const button = $(this);
         const description = button.data('description');

@@ -691,6 +691,8 @@ Route::get('/order_transactions/{id}', [App\Http\Controllers\PaymentController::
 // Activity Log Routes
 Route::middleware(['permission:activity-logs,activity-logs'])->group(function () {
     Route::get('/activity-logs', [App\Http\Controllers\ActivityLogController::class, 'index'])->name('activity-logs');
+    Route::get('/api/activity-logs/data', [App\Http\Controllers\ActivityLogController::class, 'getActivityLogsData'])->name('api.activity-logs.data');
+    Route::get('/api/activity-logs/count', [App\Http\Controllers\ActivityLogController::class, 'getLogsCount'])->name('api.activity-logs.count');
 });
 Route::post('/api/activity-logs/log', [App\Http\Controllers\ActivityLogController::class, 'logActivity'])->name('api.activity-logs.log');
 Route::get('/api/activity-logs/module/{module}', [App\Http\Controllers\ActivityLogController::class, 'getModuleLogs'])->name('api.activity-logs.module');
