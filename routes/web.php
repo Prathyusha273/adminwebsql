@@ -765,6 +765,7 @@ Route::middleware(['permission:banners,setting.banners.edit'])->group(function (
     Route::post('/banners/{id}', [App\Http\Controllers\MenuItemController::class, 'update'])->name('setting.banners.update');
     Route::post('/banners/{id}/toggle', [App\Http\Controllers\MenuItemController::class, 'togglePublish'])->name('setting.banners.toggle');
 });
+
 Route::middleware(['permission:banners,setting.banners.delete'])->group(function () {
     Route::delete('/banners/{id}', [App\Http\Controllers\MenuItemController::class, 'destroy'])->name('menu-items.destroy');
     Route::delete('/banners/', [App\Http\Controllers\MenuItemController::class, 'bulkDelete'])->name('menu-items.bulkDelete');
