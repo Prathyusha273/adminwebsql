@@ -46,3 +46,11 @@ Route::post('/app-users', [AppUserController::class, 'store']);
 Route::delete('/app-users/{id}', [AppUserController::class, 'destroy']);
 Route::patch('/app-users/{id}/active', [AppUserController::class, 'setActive']);
 
+Route::post('/send-otp', [App\Http\Controllers\OTPController::class, 'sendOtp']);
+Route::post('/verify-otp', [App\Http\Controllers\OTPController::class, 'verifyOtp']);
+Route::post('/resend-otp', [App\Http\Controllers\OTPController::class, 'resendOtp']);
+Route::post('/sms-delivery-status', [App\Http\Controllers\OTPController::class, 'smsDeliveryStatus']);
+
+// Debug route - remove in production
+Route::get('/debug-otp/{phone}', [App\Http\Controllers\OTPController::class, 'debugOtp']);
+

@@ -647,7 +647,7 @@ class MartItemController extends Controller
     public function getPlaceholderImage()
     {
         try {
-            // Settings table structure: doc_id, document_name, fields
+            // Settings table structure: id (auto-increment), document_name (unique), fields (JSON)
             if (DB::getSchemaBuilder()->hasTable('settings')) {
                 $setting = DB::table('settings')
                     ->where('document_name', 'placeHolderImage')

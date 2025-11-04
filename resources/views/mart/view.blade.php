@@ -675,7 +675,7 @@
                 get: function(){
                     // settings/placeHolderImage
                     if (self._name === 'settings' && self._docId === 'placeHolderImage'){
-                        return Promise.resolve({ data: function(){ return { image: '{{ asset('assets/images/placeholder-image.png') }}' }; } });
+                        return Promise.resolve({ data: function(){ return { image: '{{ asset('images/placeholder.png') }}' }; } });
                     }
                     // settings/AdminCommission
                     if (self._name === 'settings' && self._docId === 'AdminCommission'){
@@ -715,7 +715,7 @@
     var timeslotworkFriday=[];
     var timeslotworkSatuarday=[];
     var timeslotworkThursday=[];
-    var placeholderImage='{{ asset('assets/images/placeholder-image.png') }}';
+    var placeholderImage='{{ asset('images/placeholder.png') }}';
     var currentCurrency='';
     var currencyAtRight=false;
     var decimal_degits=0;

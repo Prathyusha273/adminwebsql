@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Google\Cloud\Firestore\FirestoreClient;
+use Illuminate\Support\Facades\DB;
 
 class FoodController extends Controller
 {
@@ -30,6 +31,173 @@ class FoodController extends Controller
     public function createfood()
     {
         return view('foods.create');
+    }
+
+    /**
+     * Get foods data for DataTables (SQL-based)
+     */
+    public function data(Request $request)
+    {
+        $userPermissions = json_decode(@session('user_permissions'), true) ?: [];
+        $canDelete = in_array('foods.delete', $userPermissions);
+
+        $draw = (int) $request->input('draw', 1);
+        $start = (int) $request->input('start', 0);
+        $length = (int) $request->input('length', 10);
+        $search = strtolower((string) data_get($request->input('search'), 'value', ''));
+
+        // Filters
+        $restaurantFilter = $request->input('restaurant');
+        $categoryFilter = $request->input('category');
+        $foodTypeFilter = $request->input('foodType');
+        $restaurantId = $request->input('restaurantId'); // For restaurant-specific view
+
+        // Build query
+        $query = \DB::table('vendor_products as vp')
+            ->leftJoin('vendors as v', 'v.id', '=', 'vp.vendorID')
+            ->leftJoin('vendor_categories as vc', 'vc.id', '=', 'vp.categoryID')
+            ->select(
+                'vp.id',
+                'vp.name',
+                'vp.photo',
+                'vp.price',
+                'vp.disPrice',
+                'vp.vendorID',
+                'vp.categoryID',
+                'vp.description',
+                'vp.publish',
+                'vp.nonveg',
+                'v.title as restaurant_name',
+                'vc.title as category_name'
+            );
+
+        // Apply filters
+        if ($restaurantId) {
+            $query->where('vp.vendorID', $restaurantId);
+        }
+        if ($restaurantFilter) {
+            $query->where('vp.vendorID', $restaurantFilter);
+        }
+        if ($categoryFilter) {
+            $query->where('vp.categoryID', $categoryFilter);
+        }
+        if ($foodTypeFilter === 'veg') {
+            $query->where('vp.nonveg', false);
+        } elseif ($foodTypeFilter === 'non-veg') {
+            $query->where('vp.nonveg', true);
+        }
+
+        // Count total
+        $total = $query->count();
+
+        // Search
+        if ($search !== '') {
+            $query->where(function($q) use ($search) {
+                $q->where(\DB::raw('LOWER(vp.name)'), 'like', '%' . $search . '%')
+                  ->orWhere(\DB::raw('LOWER(v.title)'), 'like', '%' . $search . '%')
+                  ->orWhere(\DB::raw('LOWER(vc.title)'), 'like', '%' . $search . '%')
+                  ->orWhere('vp.price', 'like', '%' . $search . '%')
+                  ->orWhere('vp.disPrice', 'like', '%' . $search . '%');
+            });
+        }
+
+        $recordsFiltered = $query->count();
+
+        // Ordering
+        $order = $request->input('order.0', ['column' => 1, 'dir' => 'asc']);
+        $orderColumnIndex = (int) data_get($order, 'column', 1);
+        $orderDir = data_get($order, 'dir', 'asc') === 'desc' ? 'desc' : 'asc';
+
+        $orderableColumns = $canDelete
+            ? ['', 'vp.name', 'vp.price', 'vp.disPrice', 'restaurant_name', 'category_name', '', '']
+            : ['vp.name', 'vp.price', 'vp.disPrice', 'restaurant_name', 'category_name', '', ''];
+
+        $orderBy = $orderableColumns[$orderColumnIndex] ?? 'vp.name';
+        if ($orderBy && $orderBy !== '') {
+            $query->orderBy($orderBy, $orderDir);
+        }
+
+        // Pagination
+        $foods = $query->skip($start)->take($length)->get();
+
+        // Format data for DataTables
+        $data = [];
+        foreach ($foods as $food) {
+            $data[] = [
+                'id' => $food->id,
+                'name' => $food->name,
+                'photo' => $food->photo,
+                'price' => $food->price,
+                'disPrice' => $food->disPrice,
+                'vendorID' => $food->vendorID,
+                'categoryID' => $food->categoryID,
+                'restaurant_name' => $food->restaurant_name,
+                'category_name' => $food->category_name,
+                'description' => $food->description,
+                'publish' => $food->publish,
+                'nonveg' => $food->nonveg,
+            ];
+        }
+
+        return response()->json([
+            'draw' => $draw,
+            'recordsTotal' => $total,
+            'recordsFiltered' => $recordsFiltered,
+            'data' => $data
+        ]);
+    }
+
+    /**
+     * Get filter options (restaurants and categories)
+     */
+    public function options(Request $request)
+    {
+        $type = $request->input('type'); // 'restaurants' or 'categories'
+
+        if ($type === 'restaurants') {
+            $restaurants = \DB::table('vendors')
+                ->where('vType', 'restaurant')
+                ->whereNotNull('title')
+                ->where('title', '!=', '')
+                ->orderBy('title', 'asc')
+                ->get(['id', 'title']);
+
+            return response()->json(['success' => true, 'data' => $restaurants]);
+        }
+
+        if ($type === 'categories') {
+            $categories = \DB::table('vendor_categories')
+                ->orderBy('title', 'asc')
+                ->get(['id', 'title']);
+
+            return response()->json(['success' => true, 'data' => $categories]);
+        }
+
+        return response()->json(['success' => false, 'message' => 'Invalid type']);
+    }
+
+    /**
+     * Toggle publish status
+     */
+    public function togglePublish(Request $request, $id)
+    {
+        try {
+            $publish = $request->input('publish') === 'true' || $request->input('publish') === true;
+
+            DB::table('vendor_products')
+                ->where('id', $id)
+                ->update(['publish' => $publish]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Publish status updated successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error updating publish status: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -170,9 +338,9 @@ class FoodController extends Controller
             $query = $firestore->collection('media')
                 ->where($field, '==', $value)
                 ->limit(1);
-            
+
             $documents = $query->documents();
-            
+
             foreach ($documents as $document) {
                 if ($document->exists()) {
                     $data = $document->data();
@@ -343,12 +511,12 @@ class FoodController extends Controller
     {
         $filePath = storage_path('app/templates/foods_import_template.xlsx');
         $templateDir = dirname($filePath);
-        
+
         // Create template directory if it doesn't exist
         if (!is_dir($templateDir)) {
             mkdir($templateDir, 0755, true);
         }
-        
+
         // Generate template if it doesn't exist
         if (!file_exists($filePath)) {
             $this->generateTemplate($filePath);
@@ -368,11 +536,11 @@ class FoodController extends Controller
         try {
             $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
             $sheet = $spreadsheet->getActiveSheet();
-            
+
             // Set headers
             $headers = [
                 'A1' => 'name',
-                'B1' => 'price', 
+                'B1' => 'price',
                 'C1' => 'description',
                 'D1' => 'vendorID',
                 'E1' => 'categoryID',
@@ -382,11 +550,11 @@ class FoodController extends Controller
                 'I1' => 'isAvailable',
                 'J1' => 'photo'
             ];
-            
+
             foreach ($headers as $cell => $value) {
                 $sheet->setCellValue($cell, $value);
             }
-            
+
             // Add sample data
             $sampleData = [
                 'A2' => 'Sample Food Item',
@@ -400,20 +568,20 @@ class FoodController extends Controller
                 'I2' => 'true',
                 'J2' => 'Sample Food Image'
             ];
-            
+
             foreach ($sampleData as $cell => $value) {
                 $sheet->setCellValue($cell, $value);
             }
-            
+
             // Auto-size columns
             foreach (range('A', 'J') as $column) {
                 $sheet->getColumnDimension($column)->setAutoSize(true);
             }
-            
+
             // Save the file
             $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
             $writer->save($filePath);
-            
+
         } catch (\Exception $e) {
             throw new \Exception('Failed to generate template: ' . $e->getMessage());
         }
@@ -524,7 +692,7 @@ class FoodController extends Controller
             ]);
 
             return response()->json([
-                'success' => false, 
+                'success' => false,
                 'message' => 'Update failed. Please try again or contact support if the problem persists.'
             ], 500);
         }

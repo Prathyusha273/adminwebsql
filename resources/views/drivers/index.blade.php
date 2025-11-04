@@ -124,7 +124,7 @@
     }
 
     // Load placeholder image from SQL
-    placeholderImage = '{{ asset('assets/images/placeholder-image.png') }}';
+    placeholderImage = '{{ asset('images/placeholder.png') }}';
 
     $('.status_selector').select2({
         placeholder: "{{trans('lang.select_status')}}",

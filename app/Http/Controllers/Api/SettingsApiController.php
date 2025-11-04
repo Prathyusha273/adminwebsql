@@ -50,7 +50,7 @@ class SettingsApiController extends Controller
     public function getGlobalSettings()
     {
         try {
-            // Settings table structure: doc_id, document_name, fields
+            // Settings table structure: id (auto-increment), document_name (unique), fields (JSON)
             $setting = DB::table('settings')
                 ->where('document_name', 'globalSettings')
                 ->first();

@@ -717,7 +717,7 @@
         var new_added_photos_filename = []; // DISABLED: Using single photo field only
         var photosToDelete = []; // DISABLED: Using single photo field only
         var product_specification = {};
-        var placeholderImage = '{{ asset('assets/images/placeholder-image.png') }}';
+        var placeholderImage = '{{ asset('images/placeholder.png') }}';
         var productImagesCount = 0;
         var variant_photos=[];
         var variant_filename=[];

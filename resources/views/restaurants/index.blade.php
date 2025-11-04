@@ -381,29 +381,30 @@
         $('#storeTable').DataTable().ajax.reload();
     });
 
-    // Test function to check zone data
+    // Test function to check zone data - SQL version
     window.testZoneData = function() {
-        console.log('Testing zone data...');
-        database.collection('vendors').limit(5).get().then(function(snapshots) {
-            console.log('Sample restaurants:');
-            snapshots.docs.forEach(doc => {
-                const data = doc.data();
-                console.log(`Restaurant: ${data.title}, ZoneId: ${data.zoneId}`);
-            });
+        console.log('Testing zone data from SQL...');
+        $.ajax({
+            url: '{{ route("restaurants.data") }}',
+            method: 'GET',
+            data: { start: 0, length: 5 },
+            success: function(response) {
+                console.log('Sample restaurants from SQL:');
+                response.data.forEach(restaurant => {
+                    console.log(`Restaurant: ${restaurant.title}, ZoneId: ${restaurant.zoneId}`);
+                });
+            }
         });
     };
+
+    // Get vendor IDs by subscription plan - SQL version (handled server-side now)
     async function subscriptionPlanVendorIds(businessModelValue){
-        var vendorIds = []
-        try {
-            const querySnapshot = await database.collection('users').where('subscriptionPlanId', '==', businessModelValue).get();
-            vendorIds = querySnapshot.docs.map(doc => doc.data().vendorID).filter(vendorID => vendorID !== undefined && vendorID !== null && vendorID !== '');
-        } catch (error) {
-            console.error("Error fetching users:", error);
-        }
-        return vendorIds;
+        // This is now handled on the server side via the restaurants.data endpoint
+        // The filter is sent and applied in the SQL query
+        return [];
     }
     var append_list = '';
-    var placeholderImage = '{{ asset('assets/images/placeholder-image.png') }}';
+    var placeholderImage = '{{ asset('images/placeholder.png') }}';
     var user_permissions = '<?php echo @session("user_permissions") ?>';
     user_permissions = Object.values(JSON.parse(user_permissions));
     var checkDeletePermission = false;
@@ -413,42 +414,68 @@
     var userData = [];
     var vendorData = [];
     var vendorProducts = [];
-    database.collection('zone').where('publish', '==', true).orderBy('name','asc').get().then(async function (snapshots) {
-        console.log('Loading zones:', snapshots.docs.length);
-        snapshots.docs.forEach((listval) => {
-            var data = listval.data();
-            console.log('Zone found:', data.name, 'ID:', data.id);
-            $('.zone_selector').append($("<option></option>")
-                .attr("value", data.id)
-                .text(data.name));
-        });
 
-        // Enable the zone selector after zones are loaded
-        $('.zone_selector').prop('disabled', false);
-    }).catch(function(error) {
-        console.error('Error loading zones:', error);
-    });
-    database.collection('vendor_categories').where('publish', '==', true).get().then(async function (snapshots) {
-        snapshots.docs.forEach((listval) => {
-            var data = listval.data();
-            $('.cuisine_selector').append($("<option></option>")
-                .attr("value", data.id)
-                .text(data.title));
-        })
-    });
-    database.collection('subscription_plans').where('isEnable', '==', true).orderBy('name', 'asc').get().then(snapshots => {
-        snapshots.docs.forEach(doc => {
-            const { expiryDay, createdAt, id, name, type } = doc.data();
-            if (expiryDay && createdAt) {
-                const expiryDate = new Date(createdAt.toDate());
-                expiryDate.setDate(expiryDate.getDate() + parseInt(expiryDay, 10));
-                if (type !== "free" && expiryDate > new Date()) {
-                    $('.business_model_selector').append($("<option>").attr("value", id).text(name));
-                } else {
-                    $('.business_model_selector').append($("<option>").attr("value", id).text(name));
-                }
+    // Load zones from SQL
+    $.ajax({
+        url: '{{ route("zone.data") }}',
+        method: 'GET',
+        success: function(response) {
+            console.log('Loading zones from SQL:', response.data.length);
+            if (response.data && response.data.length > 0) {
+                response.data.forEach(function(zone) {
+                    console.log('Zone found:', zone.name, 'ID:', zone.id);
+                    $('.zone_selector').append($("<option></option>")
+                        .attr("value", zone.id)
+                        .text(zone.name));
+                });
             }
-        });
+            // Enable the zone selector after zones are loaded
+            $('.zone_selector').prop('disabled', false);
+        },
+        error: function(error) {
+            console.error('Error loading zones from SQL:', error);
+            $('.zone_selector').prop('disabled', false);
+        }
+    });
+
+    // Load vendor categories from SQL
+    $.ajax({
+        url: '/api/vendor-categories',
+        method: 'GET',
+        success: function(response) {
+            console.log('Loading vendor categories from SQL');
+            if (response.data && response.data.length > 0) {
+                response.data.forEach(function(category) {
+                    if (category.publish) {
+                        $('.cuisine_selector').append($("<option></option>")
+                            .attr("value", category.id)
+                            .text(category.title));
+                    }
+                });
+            }
+        },
+        error: function(error) {
+            console.error('Error loading vendor categories from SQL:', error);
+        }
+    });
+
+    // Load subscription plans from SQL
+    $.ajax({
+        url: '/api/subscription-plans',
+        method: 'GET',
+        success: function(response) {
+            console.log('Loading subscription plans from SQL');
+            if (response.data && response.data.length > 0) {
+                response.data.forEach(function(plan) {
+                    if (plan.isEnable) {
+                        $('.business_model_selector').append($("<option>").attr("value", plan.id).text(plan.name));
+                    }
+                });
+            }
+        },
+        error: function(error) {
+            console.error('Error loading subscription plans from SQL:', error);
+        }
     });
     $('.zone_selector').select2({
         placeholder: "{{trans('lang.select_zone')}}",
@@ -477,7 +504,7 @@
         }, 0);
     });
     // Load placeholder image from SQL
-    var placeholderImage = '{{ asset('assets/images/placeholder-image.png') }}';
+    var placeholderImage = '{{ asset('images/placeholder.png') }}';
     $.ajax({
         url: '{{ route("vendors.placeholder-image") }}',
         method: 'GET',

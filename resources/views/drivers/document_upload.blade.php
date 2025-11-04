@@ -51,7 +51,7 @@
         var frontFileName = '';
         var backFileOld = '';
         var frontFileOld = '';
-    var placeholderImage = '{{ asset('assets/images/placeholder-image.png') }}';
+    var placeholderImage = '{{ asset('images/placeholder.png') }}';
         $(document).ready(function () {
             jQuery("#data-table_processing").show();
             var html = '';

@@ -38,25 +38,10 @@
 @endsection
 @section('scripts')
 <script>
-var database = firebase.firestore();
-var photo = "";
-var ref = database.collection('settings').doc('footerTemplate');
 $(document).ready(function () {
-    try {
-        jQuery("#data-table_processing").show();
-        ref.get().then(async function (snapshots) {
-            var footerTemplateData = snapshots.data();
-            if (footerTemplateData == undefined) {
-                database.collection('settings').doc('footerTemplate').set({"footerTemplate": ""});
-            }
-            if (footerTemplateData.footerTemplate) {
-                $('#footerTemplate').summernote("code", footerTemplateData.footerTemplate);
-            }
-            jQuery("#data-table_processing").hide();
-        });
-    } catch (error) {
-        jQuery("#data-table_processing").hide();
-    }
+    jQuery("#data-table_processing").show();
+
+    // Initialize Summernote editor first
     $('#footerTemplate').summernote({
         height: 400,
         width: 1024,
@@ -72,23 +57,85 @@ $(document).ready(function () {
             ['view', ['fullscreen', 'codeview', 'help']],
         ]
     });
+
+    // Fetch Footer Template from SQL database
+    $.ajax({
+        url: '{{ route("settings.get", "footerTemplate") }}',
+        type: 'GET',
+        success: function(response) {
+            if(response.success && response.data && response.data.footerTemplate) {
+                $('#footerTemplate').summernote("code", response.data.footerTemplate);
+            }
+            jQuery("#data-table_processing").hide();
+        },
+        error: function() {
+            jQuery("#data-table_processing").hide();
+            console.error('Error loading footer template');
+        }
+    });
+
+    // Save Footer Template
+    var isSaving = false;
     $(".edit-setting-btn").click(function () {
+        if (isSaving) {
+            return false; // Prevent double-click
+        }
+
         var footerTemplate = $('#footerTemplate').summernote('code');
         $(".error_top").hide();
         $(".error_top").html("");
-        if (footerTemplate == '') {
+
+        if (footerTemplate == '' || footerTemplate == '<p><br></p>') {
             $(".error_top").show();
             $(".error_top").append("<p>{{trans('lang.footer_template_error')}}</p>");
             window.scrollTo(0, 0);
         } else {
+            isSaving = true;
             jQuery("#data-table_processing").show();
-            database.collection('settings').doc('footerTemplate').update({'footerTemplate': footerTemplate}).then(async function (result) {
-                // Log the activity
-                await logActivity('footer_template', 'updated', 'Updated Footer Template content');
-                window.location.href = '{{ route("footerTemplate")}}';
-            })
+            $(this).prop('disabled', true);
+
+            $.ajax({
+                url: '{{ route("settings.update", "footerTemplate") }}',
+                type: 'POST',
+                data: {
+                    _token: '{{ csrf_token() }}',
+                    footerTemplate: footerTemplate
+                },
+                success: function(response) {
+                    if(response.success) {
+                        // Log the activity (optional - don't block on failure)
+                        if (typeof logActivity === 'function') {
+                            try {
+                                logActivity('footer_template', 'updated', 'Updated Footer Template content')
+                                    .catch(function(err) {
+                                        console.warn('Activity logging failed:', err);
+                                    })
+                                    .finally(function() {
+                                        window.location.href = '{{ route("footerTemplate")}}';
+                                    });
+                            } catch(e) {
+                                console.warn('Activity logging error:', e);
+                                window.location.href = '{{ route("footerTemplate")}}';
+                            }
+                        } else {
+                            window.location.href = '{{ route("footerTemplate")}}';
+                        }
+                    } else {
+                        jQuery("#data-table_processing").hide();
+                        $(".edit-setting-btn").prop('disabled', false);
+                        isSaving = false;
+                        alert('Error: ' + (response.message || 'Failed to update'));
+                    }
+                },
+                error: function() {
+                    jQuery("#data-table_processing").hide();
+                    $(".edit-setting-btn").prop('disabled', false);
+                    isSaving = false;
+                    alert('Error updating footer template');
+                }
+            });
         }
-    })
+    });
 });
 </script>
 @endsection

@@ -67,22 +67,17 @@
 @endsection
 @section('scripts')
 <script>
-var database = firebase.firestore();
-var storageRef = firebase.storage().ref('language');
-var ref = database.collection('settings').doc('languages');
+// SQL mode - no Firebase
 var languages=[];
 var photo = "";
 var fileName = "";
 var flagImageFile = '';
 $(document).ready(function(){
-	ref.get().then( async function(snapshots){
-		snapshots=snapshots.data();
-		if (snapshots == undefined) {
-            database.collection('settings').doc('languages').set({'list':''});
-         }else{
-			snapshots=snapshots.list;
-			if(snapshots.length){
-				languages=snapshots;
+	// Load languages from SQL
+	$.get("{{ route('api.languages.settings') }}", function(response) {
+		if (response.success && response.list) {
+			if(response.list.length){
+				languages = response.list;
 			}
 		}
 	});
@@ -115,11 +110,26 @@ $(".save-setting-btn").click(function(){
 			}else{
 				languages=[{'title':title,'slug':slug,'isActive':active,'is_rtl':is_rtl,'image': IMG}];
 			}
-			database.collection('settings').doc('languages').update({'list':languages}).then(async function(result) {
-				jQuery("#data-table_processing").hide();
-				// Log the activity
-				await logActivity('languages', 'created', 'Created new language: ' + title);
-				window.location.href = '{{ route("settings.app.languages") }}';
+			$.ajax({
+				url: "{{ route('api.languages.update') }}",
+				method: 'POST',
+				headers: {
+					'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+				},
+				data: {
+					list: languages
+				},
+				success: function(result) {
+					jQuery("#data-table_processing").hide();
+					window.location.href = '{{ route("settings.app.languages") }}';
+				},
+				error: function(xhr) {
+					jQuery("#data-table_processing").hide();
+					$(".error_top").show();
+					$(".error_top").html("");
+					$(".error_top").append("<p>Error saving language</p>");
+					window.scrollTo(0, 0);
+				}
 			});
 		}).catch(err => {
 			jQuery("#overlay").hide();
@@ -158,17 +168,28 @@ function handleFileSelect(evt) {
 async function storeImageData() {
 	var newPhoto = '';
 	try {
-		if (photo != flagImageFile) {
-			photo = photo.replace(/^data:image\/[a-z]+;base64,/, "")
-			var uploadTask = await storageRef.child(fileName).putString(photo, 'base64', {contentType: 'image/jpg'});
-			var downloadURL = await uploadTask.ref.getDownloadURL();
-			newPhoto = downloadURL;
-			photo = downloadURL;
+		if (photo != flagImageFile && photo) {
+			// Upload to Laravel server
+			var response = await $.ajax({
+				url: '/upload-image',
+				method: 'POST',
+				headers: {
+					'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+				},
+				data: {
+					image: photo,
+					filename: fileName
+				}
+			});
+			if (response.success) {
+				newPhoto = response.url;
+				photo = response.url;
+			}
 		} else {
 			newPhoto = photo;
 		}
 	} catch (error) {
-		console.log("ERR ===", error);
+		console.error("Image upload error:", error);
 	}
 	return newPhoto;
 }

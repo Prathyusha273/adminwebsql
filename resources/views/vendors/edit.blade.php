@@ -217,7 +217,7 @@
     <script>
         var user_id = "<?php echo $id; ?>";
         var rest_id = null;
-        var placeholderImage = '{{ asset('assets/images/placeholder-image.png') }}';
+        var placeholderImage = '{{ asset('images/placeholder.png') }}';
         var ownerFileName = '';
         var ownerOldImageFile = '';
         var ownerphoto = '';

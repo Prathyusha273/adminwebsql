@@ -163,7 +163,7 @@
     <script type="text/javascript">
         // SQL mode: fetch via API instead of Firebase
         var apiBase = '{{ url('/api') }}';
-        var placeholderImage = '{{ asset('assets/images/placeholder-image.png') }}';
+        var placeholderImage = '{{ asset('images/placeholder.png') }}';
         var user_permissions = '<?php echo @session("user_permissions") ?>';
         user_permissions = Object.values(JSON.parse(user_permissions));
         var checkDeletePermission = false;
@@ -173,12 +173,54 @@
         var zoneIdToName = {};
         var zonesLoaded = false;
 
-        // Load zones first - returns a promise
+        // Format date time helper function
+        function formatDateTime(dateString) {
+            if (!dateString) return '-';
+            try {
+                const date = new Date(dateString);
+                if (isNaN(date.getTime())) return '-';
+
+                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                const month = months[date.getMonth()];
+                const day = String(date.getDate()).padStart(2, '0');
+                const year = date.getFullYear();
+                let hours = date.getHours();
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                const ampm = hours >= 12 ? 'PM' : 'AM';
+                hours = hours % 12 || 12;
+
+                return `${month} ${day}, ${year} ${String(hours).padStart(2, '0')}:${minutes} ${ampm}`;
+            } catch (e) {
+                console.error('Error formatting date:', e);
+                return '-';
+            }
+        }
+
+        // Load zones from SQL
         var loadZonesPromise = new Promise(function(resolve){
-            // If you store zones in SQL too, replace this inline with an API call.
-            // For now leave empty map to avoid blocking UI.
-            zonesLoaded = true;
-            resolve(zoneIdToName);
+            $.ajax({
+                url: '{{ route("zone.data") }}',
+                method: 'GET',
+                success: function(response) {
+                    if (response.data && response.data.length > 0) {
+                        response.data.forEach(function(zone) {
+                            zoneIdToName[zone.id] = zone.name;
+                            // Add zone to selector
+                            $('.zone_selector').append(
+                                $('<option></option>').val(zone.id).text(zone.name)
+                            );
+                        });
+                    }
+                    zonesLoaded = true;
+                    console.log('✅ Zones loaded from SQL:', zoneIdToName);
+                    resolve(zoneIdToName);
+                },
+                error: function(xhr, status, error) {
+                    console.error('❌ Error loading zones:', error);
+                    zonesLoaded = true;
+                    resolve(zoneIdToName);
+                }
+            });
         });
 
         // Initialize select2 for all selectors

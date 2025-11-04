@@ -172,91 +172,155 @@
 @section('scripts')
  <script>
 	var id = "<?php echo $id;?>";
-	var database = firebase.firestore();
-	var ref = database.collection('vendors').where("id","==",id);
-	var photo ="";
+	var photo = "";
 	var restaurantOwnerId = "";
 	var restaurantOwnerOnline = false;
+
 	$(document).ready(function(){
   		jQuery("#data-table_processing").show();
-  		ref.get().then( async function(snapshots){
-			var restaurant = snapshots.docs[0].data();
-			$(".restaurant_name").val(restaurant.title);
-			$(".restaurant_cuisines").val(restaurant.filters.Cuisine);
-			$(".restaurant_address").val(restaurant.location);
-			$(".restaurant_latitude").val(restaurant.latitude);
-			$(".restaurant_longitude").val(restaurant.longitude);
-			$(".restaurant_description").val(restaurant.description);
-			restaurantOwnerOnline = restaurant.isActive;
-	   		photo = restaurant.photo;
-	    	restaurantOwnerId = restaurant.author;
-	 		await database.collection('users').where("id","==",restaurant.author).get().then( async function(snapshots){
-	   			snapshots.docs.forEach((listval) => {
-	            var user = listval.data();
-				$(".restaurant_owners").val(user.firstName+" "+user.lastName);
-	          })
-			});
-			await database.collection('vendor_categories').get().then( async function(snapshots){
-	   			snapshots.docs.forEach((listval) => {
-	            	var data = listval.data();
-	            	if(data.id == restaurant.categoryID){
-	                	$('#restaurant_cuisines').append($("<option selected></option>")
-	                    	.attr("value", data.id)
-	                    	.text(data.title));
-	            	}else{
-	                	$('#restaurant_cuisines').append($("<option></option>")
-	                    	.attr("value", data.id)
-	                    	.text(data.title));
-			    	}
-	          	})
-			});  
-	    	if(restaurant.hasOwnProperty('phonenumber')){
-	     		$(".restaurant_phone").val(restaurant.phonenumber);
-	    	}
-	  		jQuery("#data-table_processing").hide();
-  		})
+
+  		// Fetch restaurant data from SQL
+  		$.ajax({
+  			url: '/restaurants/' + id + '/data',
+  			method: 'GET',
+  			success: function(response) {
+  				if (response.success) {
+  					var restaurant = response.data;
+  					$(".restaurant_name").val(restaurant.title);
+  					$(".restaurant_address").val(restaurant.location);
+  					$(".restaurant_latitude").val(restaurant.latitude);
+  					$(".restaurant_longitude").val(restaurant.longitude);
+  					$(".restaurant_description").val(restaurant.description);
+  					restaurantOwnerOnline = restaurant.isActive;
+  					photo = restaurant.photo;
+  					restaurantOwnerId = restaurant.author;
+
+  					if (restaurant.phonenumber) {
+  						$(".restaurant_phone").val(restaurant.phonenumber);
+  					}
+
+  					// Fetch owner user data
+  					if (restaurant.author) {
+  						$.ajax({
+  							url: '/users/' + restaurant.author + '/data',
+  							method: 'GET',
+  							success: function(userResponse) {
+  								if (userResponse.success) {
+  									var user = userResponse.data;
+  									$(".restaurant_owners").val(user.firstName + " " + user.lastName);
+  								}
+  							}
+  						});
+  					}
+
+  					// Fetch categories
+  					$.ajax({
+  						url: '/restaurants/categories',
+  						method: 'GET',
+  						success: function(catResponse) {
+  							if (catResponse.success) {
+  								catResponse.data.forEach(function(category) {
+  									if (category.id == restaurant.categoryID) {
+  										$('#restaurant_cuisines').append($("<option selected></option>")
+  											.attr("value", category.id)
+  											.text(category.title));
+  									} else {
+  										$('#restaurant_cuisines').append($("<option></option>")
+  											.attr("value", category.id)
+  											.text(category.title));
+  									}
+  								});
+  							}
+  						}
+  					});
+
+  					jQuery("#data-table_processing").hide();
+  				}
+  			},
+  			error: function(xhr, status, error) {
+  				console.error('Error fetching restaurant:', error);
+  				jQuery("#data-table_processing").hide();
+  			}
+  		});
+
 		$(".save_restaurant_btn").click(function(){
 		  	var restaurantname = $(".restaurant_name").val();
 			var cuisines = $("#restaurant_cuisines option:selected").val();
-			var address = $(".restaurant_address").val();	
+			var address = $(".restaurant_address").val();
 			var latitude = parseFloat($(".restaurant_latitude").val());
 			var longitude = parseFloat($(".restaurant_longitude").val());
 			var description = $(".restaurant_description").val();
 			var phonenumber = $(".restaurant_phone").val();
-			var categoryTitle = $( "#restaurant_cuisines option:selected" ).text();
-		    database.collection('vendors').doc(id).update({'title':restaurantname,'description':description,'latitude':latitude,
-		      'longitude':longitude,'location':address,'photo':photo,'categoryID':cuisines,'phonenumber':phonenumber,'categoryTitle':categoryTitle}).then(function(result) {
-		                window.location.href = '{{ route("restaurants")}}';
-		             }); 
+			var categoryTitle = $("#restaurant_cuisines option:selected").text();
+
+			// Update restaurant via SQL
+			$.ajax({
+				url: '/restaurants/' + id,
+				method: 'PUT',
+				headers: {
+					'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+				},
+				data: {
+					title: restaurantname,
+					description: description,
+					latitude: latitude,
+					longitude: longitude,
+					location: address,
+					photo: photo,
+					categoryID: cuisines,
+					phonenumber: phonenumber,
+					categoryTitle: categoryTitle
+				},
+				success: function(response) {
+					if (response.success) {
+						window.location.href = '{{ route("restaurants")}}';
+					} else {
+						alert('Error updating restaurant: ' + response.message);
+					}
+				},
+				error: function(xhr, status, error) {
+					console.error('Error updating restaurant:', error);
+					alert('Error updating restaurant');
+				}
+			});
 		})
 	})
-	var storageRef = firebase.storage().ref('images');
+
+	// Handle file upload using traditional method (can be upgraded to Laravel storage later)
 	function handleFileSelect(evt) {
   		var f = evt.target.files[0];
   		var reader = new FileReader();
-	  	reader.onload = (function(theFile) {
-		    return function(e) {
-		      var filePayload = e.target.result;
-		    	var val =f.name;       
-		      var ext=val.split('.')[1];
-		      var docName=val.split('fakepath')[1];
-		      var filename = (f.name).replace(/C:\\fakepath\\/i, '')
-		      var timestamp = Number(new Date());      
-		      var uploadTask = storageRef.child(filename).put(theFile);
-		      uploadTask.on('state_changed', function(snapshot){
-		      var progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-		      console.log('Upload is ' + progress + '% done');
-		      jQuery("#uploding_image").text("Image is uploading...");
-		    }, function(error) {
-		    }, function() {
-		        uploadTask.snapshot.ref.getDownloadURL().then(function(downloadURL) {
-		            jQuery("#uploding_image").text("Upload is completed");
-		            photo = downloadURL;
-		      });   
+
+	  	reader.onload = function(e) {
+		    var fileData = e.target.result;
+		    jQuery("#uploding_image").text("Uploading image...");
+
+		    // Upload via AJAX to Laravel backend
+		    $.ajax({
+		    	url: '/upload-image',
+		    	method: 'POST',
+		    	headers: {
+		    		'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+		    	},
+		    	data: {
+		    		image: fileData,
+		    		filename: f.name
+		    	},
+		    	success: function(response) {
+		    		if (response.success) {
+		    			photo = response.url;
+		    			jQuery("#uploding_image").text("Upload completed");
+		    		} else {
+		    			jQuery("#uploding_image").text("Upload failed");
+		    		}
+		    	},
+		    	error: function() {
+		    		jQuery("#uploding_image").text("Upload failed");
+		    	}
 		    });
 	    };
-	  })(f);
-  reader.readAsDataURL(f);
-}   
+
+  		reader.readAsDataURL(f);
+	}
 </script>
 @endsection

@@ -142,7 +142,7 @@
 <script type="text/javascript">
     var database = firebase.firestore();
     var ref = database.collection('brands').orderBy('name');
-    var placeholderImage = '{{ asset('assets/images/placeholder-image.png') }}';
+    var placeholderImage = '{{ asset('images/placeholder.png') }}';
     var user_permissions = '<?php echo @session("user_permissions")?>';
     user_permissions = Object.values(JSON.parse(user_permissions));
     var checkDeletePermission = false;

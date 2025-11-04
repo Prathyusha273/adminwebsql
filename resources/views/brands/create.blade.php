@@ -95,7 +95,7 @@
     var logo_url = "";
     var storageRef = firebase.storage().ref('images');
     var storage = firebase.storage();
-    var placeholderImage = '{{ asset('assets/images/placeholder-image.png') }}';
+    var placeholderImage = '{{ asset('images/placeholder.png') }}';
 
     $(document).ready(function () {
         jQuery("#data-table_processing").show();

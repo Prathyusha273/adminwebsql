@@ -126,7 +126,7 @@
 <script>
     var photo = "";
     var fileName='';
-    var placeholderImage = '{{ asset("assets/images/placeholder-image.png") }}';
+    var placeholderImage = '{{ asset("images/placeholder.png") }}';
     var storageRef = firebase.storage().ref('images');
 
     $(document).ready(function () {

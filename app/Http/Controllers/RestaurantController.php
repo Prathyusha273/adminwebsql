@@ -2093,7 +2093,7 @@ class RestaurantController extends Controller
     public function getPlaceholderImage()
     {
         try {
-            // Settings table has Firebase-migrated structure: doc_id, document_name, fields
+            // Settings table structure: id (auto-increment), document_name (unique), fields (JSON)
             $placeholder = DB::table('settings')
                             ->where('document_name', 'placeHolderImage')
                             ->first();
@@ -2961,6 +2961,56 @@ class RestaurantController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching email template: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get vendor categories for API
+     */
+    public function getVendorCategories()
+    {
+        try {
+            $categories = DB::table('vendor_categories')
+                ->where('publish', true)
+                ->orderBy('title', 'asc')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $categories
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error fetching vendor categories: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching vendor categories: ' . $e->getMessage(),
+                'data' => []
+            ], 500);
+        }
+    }
+
+    /**
+     * Get subscription plans for API
+     */
+    public function getSubscriptionPlansAPI()
+    {
+        try {
+            $plans = DB::table('subscription_plans')
+                ->where('isEnable', true)
+                ->orderBy('name', 'asc')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $plans
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error fetching subscription plans: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching subscription plans: ' . $e->getMessage(),
+                'data' => []
             ], 500);
         }
     }

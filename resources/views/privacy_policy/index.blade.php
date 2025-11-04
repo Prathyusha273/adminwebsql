@@ -35,52 +35,101 @@
 @endsection
 @section('scripts')
 <script>
-var database = firebase.firestore();
-var photo ="";
-var ref = database.collection('settings').doc('privacyPolicy');
-
 $(document).ready(function () {
-
 	jQuery("#data-table_processing").show();
 
-	ref.get().then(async function (snapshots) {
-		var user = snapshots.data();
-		if(user.privacy_policy)
-		{
-			$('#privacy_policy').summernote("code", user.privacy_policy);
-		}
-		jQuery("#data-table_processing").hide();
-	});
-
+	// Initialize Summernote editor first
 	$('#privacy_policy').summernote({
 		height: 400,
 		toolbar: [
-		['style', ['bold', 'italic', 'underline', 'clear']],
-		['font', ['strikethrough', 'superscript', 'subscript']],
-		['fontsize', ['fontsize']],
-		['color', ['color']],
-		['forecolor', ['forecolor']],
-		['backcolor', ['backcolor']],
-		['para', ['ul', 'ol', 'paragraph']],
-		['height', ['height']]
+			['style', ['bold', 'italic', 'underline', 'clear']],
+			['font', ['strikethrough', 'superscript', 'subscript']],
+			['fontsize', ['fontsize']],
+			['color', ['color']],
+			['forecolor', ['forecolor']],
+			['backcolor', ['backcolor']],
+			['para', ['ul', 'ol', 'paragraph']],
+			['height', ['height']]
 		]
     });
 
+	// Fetch Privacy Policy from SQL database
+	$.ajax({
+		url: '{{ route("settings.get", "privacyPolicy") }}',
+		type: 'GET',
+		success: function(response) {
+			if(response.success && response.data && response.data.privacy_policy) {
+				$('#privacy_policy').summernote("code", response.data.privacy_policy);
+			}
+			jQuery("#data-table_processing").hide();
+		},
+		error: function() {
+			jQuery("#data-table_processing").hide();
+			console.error('Error loading privacy policy');
+		}
+	});
+
+	// Save Privacy Policy
+	var isSaving = false;
 	$(".edit-setting-btn").click(function(){
-		var privacy_policy =  $('#privacy_policy').summernote('code');
-	    if(privacy_policy == ''){
+		if (isSaving) {
+			return false; // Prevent double-click
+		}
+
+		var privacy_policy = $('#privacy_policy').summernote('code');
+
+	    if(privacy_policy == '' || privacy_policy == '<p><br></p>'){
 	        $(".error_top").show();
 	        $(".error_top").html("");
 	        $(".error_top").append("<p>{{trans('lang.user_firstname_error')}}</p>");
 	        window.scrollTo(0, 0);
-	  	}else{
-		    database.collection('settings').doc('privacyPolicy').update({'privacy_policy':privacy_policy}).then(async function(result) {
-				// Log the activity
-				await logActivity('privacy_policy', 'updated', 'Updated Privacy Policy content');
-				window.location.href = '{{ route("privacyPolicy")}}';
-		    })
+	  	} else {
+			isSaving = true;
+			jQuery("#data-table_processing").show();
+			$(this).prop('disabled', true);
+
+			$.ajax({
+				url: '{{ route("settings.update", "privacyPolicy") }}',
+				type: 'POST',
+				data: {
+					_token: '{{ csrf_token() }}',
+					privacy_policy: privacy_policy
+				},
+				success: function(response) {
+					if(response.success) {
+						// Log the activity (optional - don't block on failure)
+						if (typeof logActivity === 'function') {
+							try {
+								logActivity('privacy_policy', 'updated', 'Updated Privacy Policy content')
+									.catch(function(err) {
+										console.warn('Activity logging failed:', err);
+									})
+									.finally(function() {
+										window.location.href = '{{ route("privacyPolicy")}}';
+									});
+							} catch(e) {
+								console.warn('Activity logging error:', e);
+								window.location.href = '{{ route("privacyPolicy")}}';
+							}
+						} else {
+							window.location.href = '{{ route("privacyPolicy")}}';
+						}
+					} else {
+						jQuery("#data-table_processing").hide();
+						$(".edit-setting-btn").prop('disabled', false);
+						isSaving = false;
+						alert('Error: ' + (response.message || 'Failed to update'));
+					}
+				},
+				error: function() {
+					jQuery("#data-table_processing").hide();
+					$(".edit-setting-btn").prop('disabled', false);
+					isSaving = false;
+					alert('Error updating privacy policy');
+				}
+			});
 		}
-	})
+	});
 });
 </script>
 @endsection

@@ -70,42 +70,44 @@
 @section('scripts')
 <script>
 	var id = "<?php echo $id;?>";
-	var database = firebase.firestore();
-	var storageRef = firebase.storage().ref('language');
-	var ref = database.collection('settings').doc('languages');
+	// SQL mode - no Firebase
 	var photo = "";
 	var fileName = "";
 	var flagImageFile = '';
 	var languages=[];
 	var language_key=0;
-    var placeholderImage = '{{ asset('assets/images/placeholder-image.png') }}';
+    var placeholderImage = '{{ asset('images/placeholder.png') }}';
 	$(document).ready(function(){
 		jQuery("#data-table_processing").show();
-		ref.get().then( async function(snapshots){
-			snapshots=snapshots.data();
-			snapshots=snapshots.list;
-			if(snapshots.length){
-				languages=snapshots;
-			}
-			snapshots.forEach((data) => {
-				if(id==data.slug){
-					$(".title").val(data.title);
-					$(".slug").val(data.slug);
-					if(data.isActive==true){
-						$(".is_active").prop('checked',true);
-					}
-					if(data.is_rtl==true){
-						$(".is_rtl").prop('checked',true);
-					}
-					if (data.image != '' && data.image != null) {
-                        $(".flag_image").append('<span class="image-item"><span class="remove-btn"><i class="fa fa-remove"></i></span><img onerror="this.onerror=null;this.src=\'' + placeholderImage + '\'" class="rounded" style="width:50px" src="' + data.image + '" alt="image"></span>');
-                        flagImageFile = data.image;
-                    }
+
+		// Load languages from SQL
+		$.get("{{ route('api.languages.settings') }}", function(response) {
+			if (response.success && response.list) {
+				var snapshots = response.list;
+				if(snapshots.length){
+					languages = snapshots;
 				}
-			});
-			for(var key in snapshots){
-				if(snapshots[key]['slug']==id){
-				language_key=key;
+				snapshots.forEach((data) => {
+					if(id==data.slug){
+						$(".title").val(data.title);
+						$(".slug").val(data.slug);
+						if(data.isActive==true){
+							$(".is_active").prop('checked',true);
+						}
+						if(data.is_rtl==true){
+							$(".is_rtl").prop('checked',true);
+						}
+						if (data.image != '' && data.image != null) {
+							$(".flag_image").append('<span class="image-item"><span class="remove-btn"><i class="fa fa-remove"></i></span><img onerror="this.onerror=null;this.src=\'' + placeholderImage + '\'" class="rounded" style="width:50px" src="' + data.image + '" alt="image"></span>');
+							flagImageFile = data.image;
+							photo = data.image;
+						}
+					}
+				});
+				for(var key in snapshots){
+					if(snapshots[key]['slug']==id){
+						language_key=key;
+					}
 				}
 			}
 			jQuery("#data-table_processing").hide();
@@ -138,11 +140,26 @@
 					languages[language_key]['isActive']=active;
 					languages[language_key]['is_rtl']=is_rtl;
 					languages[language_key]['image']=IMG;
-					database.collection('settings').doc('languages').update({'list':languages}).then(async function(result) {
-						jQuery("#data-table_processing").hide();
-						// Log the activity
-						await logActivity('languages', 'updated', 'Updated language: ' + title);
-						window.location.href = '{{ route("settings.app.languages") }}';
+					$.ajax({
+						url: "{{ route('api.languages.update') }}",
+						method: 'POST',
+						headers: {
+							'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+						},
+						data: {
+							list: languages
+						},
+						success: function(result) {
+							jQuery("#data-table_processing").hide();
+							window.location.href = '{{ route("settings.app.languages") }}';
+						},
+						error: function(xhr) {
+							jQuery("#data-table_processing").hide();
+							$(".error_top").show();
+							$(".error_top").html("");
+							$(".error_top").append("<p>Error updating language</p>");
+							window.scrollTo(0, 0);
+						}
 					});
 				}).catch(err => {
 					jQuery("#overlay").hide();
@@ -183,18 +200,28 @@
 	async function storeImageData() {
 		var newPhoto = '';
 		try {
-			if (photo != flagImageFile) {
-				photo = photo.replace(/^data:image\/[a-z]+;base64,/, "")
-				var uploadTask = await storageRef.child(fileName).putString(photo, 'base64', {contentType: 'image/jpg'});
-				var downloadURL = await uploadTask.ref.getDownloadURL();
-				newPhoto = downloadURL;
-				photo = downloadURL;
-                deleteImageFromBucket(flagImageFile);
+			if (photo != flagImageFile && photo && photo.startsWith('data:image')) {
+				// Upload to Laravel server
+				var response = await $.ajax({
+					url: '/upload-image',
+					method: 'POST',
+					headers: {
+						'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+					},
+					data: {
+						image: photo,
+						filename: fileName
+					}
+				});
+				if (response.success) {
+					newPhoto = response.url;
+					photo = response.url;
+				}
 			} else {
 				newPhoto = photo;
 			}
 		} catch (error) {
-			console.log("ERR ===", error);
+			console.error("Image upload error:", error);
 		}
 		return newPhoto;
 	}

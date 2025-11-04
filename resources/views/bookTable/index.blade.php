@@ -88,7 +88,7 @@
     var vendorId;
     var ref;
     var append_list = '';
-    var placeholderImage = '{{ asset('assets/images/placeholder-image.png') }}';
+    var placeholderImage = '{{ asset('images/placeholder.png') }}';
     var dineInOrderAcceptedSubject = '';
     var dineInOrderAcceptedMsg = '';
     var dineInOrderRejectedSubject = '';

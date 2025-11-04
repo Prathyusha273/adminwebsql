@@ -32,32 +32,78 @@
  @endsection
 @section('scripts')
 <script>
-    var database = firebase.firestore();
-    var ref = database.collection('settings').doc("specialDiscountOffer");
-    var photo = "";
     $(document).ready(function(){
         jQuery("#data-table_processing").show();
-        ref.get().then( async function(snapshots){
-          var specialDiscountOffer = snapshots.data();
-          if(specialDiscountOffer == undefined){
-              database.collection('settings').doc('specialDiscountOffer').set({});
-          }
-          try{
-              if(specialDiscountOffer.isEnable){
-                  $("#enable_special_discount").prop('checked',true);
-              }
-          }catch (error){
-          }
-          jQuery("#data-table_processing").hide();
-        })
+
+        // Fetch setting from SQL database
+        $.ajax({
+            url: '{{ route("settings.get", "specialDiscountOffer") }}',
+            type: 'GET',
+            success: function(response) {
+                if(response.success && response.data && response.data.isEnable){
+                    $("#enable_special_discount").prop('checked', true);
+                }
+                jQuery("#data-table_processing").hide();
+            },
+            error: function() {
+                jQuery("#data-table_processing").hide();
+            }
+        });
+
+        // Save setting
+        var isSaving = false;
         $(".edit-setting-btn").click(function(){
-          var checkboxValue = $("#enable_special_discount").is(":checked");
-              database.collection('settings').doc("specialDiscountOffer").update({'isEnable':checkboxValue}).then(async function(result) {
-                // Log the activity
-                await logActivity('settings', 'updated', 'Updated special discount offer setting: ' + (checkboxValue ? 'Enabled' : 'Disabled'));
-                window.location.href = '{{ url("settings/app/specialOffer")}}';
-                });
-        })
-    })
+            if (isSaving) {
+                return false; // Prevent double-click
+            }
+
+            isSaving = true;
+            var checkboxValue = $("#enable_special_discount").is(":checked");
+
+            jQuery("#data-table_processing").show();
+            $(this).prop('disabled', true);
+
+            $.ajax({
+                url: '{{ route("settings.update", "specialDiscountOffer") }}',
+                type: 'POST',
+                data: {
+                    _token: '{{ csrf_token() }}',
+                    isEnable: checkboxValue
+                },
+                success: function(response) {
+                    if(response.success) {
+                        // Log the activity (optional - don't block on failure)
+                        if (typeof logActivity === 'function') {
+                            try {
+                                logActivity('settings', 'updated', 'Updated special discount offer setting: ' + (checkboxValue ? 'Enabled' : 'Disabled'))
+                                    .catch(function(err) {
+                                        console.warn('Activity logging failed:', err);
+                                    })
+                                    .finally(function() {
+                                        window.location.href = '{{ url("settings/app/specialOffer")}}';
+                                    });
+                            } catch(e) {
+                                console.warn('Activity logging error:', e);
+                                window.location.href = '{{ url("settings/app/specialOffer")}}';
+                            }
+                        } else {
+                            window.location.href = '{{ url("settings/app/specialOffer")}}';
+                        }
+                    } else {
+                        jQuery("#data-table_processing").hide();
+                        $(".edit-setting-btn").prop('disabled', false);
+                        isSaving = false;
+                        alert('Error: ' + (response.message || 'Failed to update setting'));
+                    }
+                },
+                error: function() {
+                    jQuery("#data-table_processing").hide();
+                    $(".edit-setting-btn").prop('disabled', false);
+                    isSaving = false;
+                    alert('Error updating setting');
+                }
+            });
+        });
+    });
 </script>
 @endsection

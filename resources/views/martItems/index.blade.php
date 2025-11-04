@@ -339,7 +339,7 @@
         currentCurrency = '₹';
         currencyAtRight = false;
         decimal_degits = 0;
-        placeholderImage = '{{ asset('assets/images/placeholder-image.png') }}';
+        placeholderImage = '{{ asset('images/placeholder.png') }}';
 
         // Load currency settings (async, but with defaults already set)
         $.ajax({

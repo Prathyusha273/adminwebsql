@@ -43,21 +43,10 @@
 @endsection
 @section('scripts')
 <script>
-    var database = firebase.firestore();
-    var photo = "";
-    var ref = database.collection('settings').doc('homepageTemplate');
     $(document).ready(function () {
         jQuery("#data-table_processing").show();
-        ref.get().then(async function (snapshots) {
-            var homepageTemplateData = snapshots.data();
-            if (homepageTemplateData == undefined) {
-                database.collection('settings').doc('homepageTemplate').set({"homepageTemplate": ""});
-            }
-            if (homepageTemplateData.homepageTemplate) {
-                $('#homepageTemplate').summernote("code", homepageTemplateData.homepageTemplate);
-            }
-            jQuery("#data-table_processing").hide();
-        });
+
+        // Initialize Summernote editor first
         $('#homepageTemplate').summernote({
             height: 400,
             width: 1024,
@@ -73,23 +62,85 @@
                 ['view', ['fullscreen', 'codeview', 'help']],
             ]
         });
+
+        // Fetch Homepage Template from SQL database
+        $.ajax({
+            url: '{{ route("settings.get", "homepageTemplate") }}',
+            type: 'GET',
+            success: function(response) {
+                if(response.success && response.data && response.data.homepageTemplate) {
+                    $('#homepageTemplate').summernote("code", response.data.homepageTemplate);
+                }
+                jQuery("#data-table_processing").hide();
+            },
+            error: function() {
+                jQuery("#data-table_processing").hide();
+                console.error('Error loading homepage template');
+            }
+        });
+
+        // Save Homepage Template
+        var isSaving = false;
         $(".edit-setting-btn").click(function () {
+            if (isSaving) {
+                return false; // Prevent double-click
+            }
+
             var homepageTemplate = $('#homepageTemplate').summernote('code');
             $(".error_top").hide();
             $(".error_top").html("");
-            if (homepageTemplate == '') {
+
+            if (homepageTemplate == '' || homepageTemplate == '<p><br></p>') {
                 $(".error_top").show();
                 $(".error_top").append("<p>{{trans('lang.homepageTemplate_error')}}</p>");
                 window.scrollTo(0, 0);
             } else {
+                isSaving = true;
                 jQuery("#data-table_processing").show();
-                database.collection('settings').doc('homepageTemplate').update({'homepageTemplate': homepageTemplate}).then(async function (result) {
-                    // Log the activity
-                    await logActivity('landing_page_template', 'updated', 'Updated Landing Page Template content');
-                    window.location.href = '{{ route("homepageTemplate")}}';
+                $(this).prop('disabled', true);
+
+                $.ajax({
+                    url: '{{ route("settings.update", "homepageTemplate") }}',
+                    type: 'POST',
+                    data: {
+                        _token: '{{ csrf_token() }}',
+                        homepageTemplate: homepageTemplate
+                    },
+                    success: function(response) {
+                        if(response.success) {
+                            // Log the activity (optional - don't block on failure)
+                            if (typeof logActivity === 'function') {
+                                try {
+                                    logActivity('landing_page_template', 'updated', 'Updated Landing Page Template content')
+                                        .catch(function(err) {
+                                            console.warn('Activity logging failed:', err);
+                                        })
+                                        .finally(function() {
+                                            window.location.href = '{{ route("homepageTemplate")}}';
+                                        });
+                                } catch(e) {
+                                    console.warn('Activity logging error:', e);
+                                    window.location.href = '{{ route("homepageTemplate")}}';
+                                }
+                            } else {
+                                window.location.href = '{{ route("homepageTemplate")}}';
+                            }
+                        } else {
+                            jQuery("#data-table_processing").hide();
+                            $(".edit-setting-btn").prop('disabled', false);
+                            isSaving = false;
+                            alert('Error: ' + (response.message || 'Failed to update'));
+                        }
+                    },
+                    error: function() {
+                        jQuery("#data-table_processing").hide();
+                        $(".edit-setting-btn").prop('disabled', false);
+                        isSaving = false;
+                        alert('Error updating homepage template');
+                    }
                 });
             }
-        })
+        });
     });
 </script>
 @endsection

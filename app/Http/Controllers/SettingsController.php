@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\Request;
 use App\Models\Vendor;
 
@@ -257,8 +258,8 @@ class SettingsController extends Controller
      */
     public function getAdminCommissionSettings()
     {
-        $admin = DB::table('settings')->where('doc_id', 'AdminCommission')->first();
-        $restaurant = DB::table('settings')->where('doc_id', 'restaurant')->first();
+        $admin = DB::table('settings')->where('document_name', 'AdminCommission')->first();
+        $restaurant = DB::table('settings')->where('document_name', 'restaurant')->first();
 
         $adminFields = $admin && $admin->fields ? json_decode($admin->fields, true) : [];
         $restaurantFields = $restaurant && $restaurant->fields ? json_decode($restaurant->fields, true) : [];
@@ -290,7 +291,7 @@ class SettingsController extends Controller
         ];
 
         DB::table('settings')->updateOrInsert(
-            ['doc_id' => 'AdminCommission'],
+            ['document_name' => 'AdminCommission'],
             ['fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
         );
 
@@ -303,12 +304,12 @@ class SettingsController extends Controller
             'subscription_model' => 'required|boolean',
         ]);
 
-        $restaurant = DB::table('settings')->where('doc_id', 'restaurant')->first();
+        $restaurant = DB::table('settings')->where('document_name', 'restaurant')->first();
         $existing = $restaurant && $restaurant->fields ? json_decode($restaurant->fields, true) : [];
         $existing['subscription_model'] = (bool) $payload['subscription_model'];
 
         DB::table('settings')->updateOrInsert(
-            ['doc_id' => 'restaurant'],
+            ['document_name' => 'restaurant'],
             ['fields' => json_encode($existing, JSON_UNESCAPED_UNICODE)]
         );
 
@@ -362,8 +363,8 @@ class SettingsController extends Controller
      */
     public function getRadiusSettings()
     {
-        $restaurant = DB::table('settings')->where('doc_id', 'RestaurantNearBy')->first();
-        $driver = DB::table('settings')->where('doc_id', 'DriverNearBy')->first();
+        $restaurant = DB::table('settings')->where('document_name', 'RestaurantNearBy')->first();
+        $driver = DB::table('settings')->where('document_name', 'DriverNearBy')->first();
 
         $restaurantFields = $restaurant && $restaurant->fields ? json_decode($restaurant->fields, true) : [];
         $driverFields = $driver && $driver->fields ? json_decode($driver->fields, true) : [];
@@ -396,12 +397,12 @@ class SettingsController extends Controller
         ];
 
         DB::table('settings')->updateOrInsert(
-            ['doc_id' => 'RestaurantNearBy'],
+            ['document_name' => 'RestaurantNearBy'],
             ['fields' => json_encode($restaurantFields, JSON_UNESCAPED_UNICODE)]
         );
 
         DB::table('settings')->updateOrInsert(
-            ['doc_id' => 'DriverNearBy'],
+            ['document_name' => 'DriverNearBy'],
             ['fields' => json_encode($driverFields, JSON_UNESCAPED_UNICODE)]
         );
 
@@ -413,7 +414,7 @@ class SettingsController extends Controller
      */
     public function getDineInSettings()
     {
-        $rec = DB::table('settings')->where('doc_id', 'DineinForRestaurant')->first();
+        $rec = DB::table('settings')->where('document_name', 'DineinForRestaurant')->first();
         $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
         return response()->json([
             'isEnabled' => (bool) ($fields['isEnabled'] ?? false),
@@ -434,7 +435,7 @@ class SettingsController extends Controller
         ];
 
         DB::table('settings')->updateOrInsert(
-            ['doc_id' => 'DineinForRestaurant'],
+            ['document_name' => 'DineinForRestaurant'],
             ['fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
         );
 
@@ -446,7 +447,7 @@ class SettingsController extends Controller
      */
     public function getDeliveryChargeSettings()
     {
-        $rec = DB::table('settings')->where('doc_id', 'DeliveryCharge')->first();
+        $rec = DB::table('settings')->where('document_name', 'DeliveryCharge')->first();
         $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
 
         return response()->json([
@@ -466,7 +467,7 @@ class SettingsController extends Controller
         // We allow optional numeric fields; merge with existing values to preserve unspecified ones
         $payload = $request->all();
 
-        $rec = DB::table('settings')->where('doc_id', 'DeliveryCharge')->first();
+        $rec = DB::table('settings')->where('document_name', 'DeliveryCharge')->first();
         $existing = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
 
         $merged = $existing;
@@ -489,7 +490,7 @@ class SettingsController extends Controller
         }
 
         DB::table('settings')->updateOrInsert(
-            ['doc_id' => 'DeliveryCharge'],
+            ['document_name' => 'DeliveryCharge'],
             ['fields' => json_encode($merged, JSON_UNESCAPED_UNICODE)]
         );
 
@@ -630,7 +631,7 @@ class SettingsController extends Controller
     public function getSurgeRulesData()
     {
         $row = DB::table('surge_rules')->where('firestore_id', 'surge_settings')->first();
-        $extra = DB::table('settings')->where('doc_id', 'surge_rules_config')->first();
+        $extra = DB::table('settings')->where('document_name', 'surge_rules_config')->first();
         $extraFields = $extra && $extra->fields ? json_decode($extra->fields, true) : [];
 
         return response()->json([
@@ -661,7 +662,7 @@ class SettingsController extends Controller
         );
 
         DB::table('settings')->updateOrInsert(
-            ['doc_id' => 'surge_rules_config'],
+            ['document_name' => 'surge_rules_config'],
             ['fields' => json_encode(['admin_surge_fee' => (int) $payload['admin_surge_fee']], JSON_UNESCAPED_UNICODE)]
         );
 
@@ -673,7 +674,7 @@ class SettingsController extends Controller
      */
     public function getDocumentVerificationSettings()
     {
-        $rec = DB::table('settings')->where('doc_id', 'document_verification_settings')->first();
+        $rec = DB::table('settings')->where('document_name', 'document_verification_settings')->first();
         $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
         return response()->json([
             'isDriverVerification' => (bool) ($fields['isDriverVerification'] ?? false),
@@ -694,10 +695,751 @@ class SettingsController extends Controller
         ];
 
         DB::table('settings')->updateOrInsert(
-            ['doc_id' => 'document_verification_settings'],
+            ['document_name' => 'document_verification_settings'],
             ['fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
         );
 
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * COD Settings
+     */
+    public function getCODSettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'CODSettings')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json([
+            'isEnabled' => (bool) ($fields['isEnabled'] ?? false),
+        ]);
+    }
+
+    public function updateCODSettings(Request $request)
+    {
+        $fields = ['isEnabled' => $request->boolean('isEnabled')];
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'CODSettings'],
+            ['document_name' => 'CODSettings', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Stripe Settings
+     */
+    public function getStripeSettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'stripeSettings')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json($fields ?: [
+            'isEnabled' => false,
+            'isSandboxEnabled' => false,
+            'isWithdrawEnabled' => false,
+            'stripeSecret' => '',
+            'stripeKey' => '',
+            'clientpublishableKey' => ''
+        ]);
+    }
+
+    public function updateStripeSettings(Request $request)
+    {
+        $fields = [
+            'isEnabled' => $request->boolean('isEnabled'),
+            'isSandboxEnabled' => $request->boolean('isSandboxEnabled'),
+            'isWithdrawEnabled' => $request->boolean('isWithdrawEnabled'),
+            'stripeSecret' => $request->input('stripeSecret', ''),
+            'stripeKey' => $request->input('stripeKey', ''),
+            'clientpublishableKey' => $request->input('clientpublishableKey', '')
+        ];
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'stripeSettings'],
+            ['document_name' => 'stripeSettings', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Razorpay Settings
+     */
+    public function getRazorpaySettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'razorpaySettings')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json($fields ?: [
+            'isEnabled' => false,
+            'isSandboxEnabled' => false,
+            'isWithdrawEnabled' => false,
+            'razorpayKey' => '',
+            'razorpaySecret' => ''
+        ]);
+    }
+
+    public function updateRazorpaySettings(Request $request)
+    {
+        $fields = [
+            'isEnabled' => $request->boolean('isEnabled'),
+            'isSandboxEnabled' => $request->boolean('isSandboxEnabled'),
+            'isWithdrawEnabled' => $request->boolean('isWithdrawEnabled'),
+            'razorpayKey' => $request->input('razorpayKey', ''),
+            'razorpaySecret' => $request->input('razorpaySecret', '')
+        ];
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'razorpaySettings'],
+            ['document_name' => 'razorpaySettings', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * PayPal Settings
+     */
+    public function getPayPalSettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'paypalSettings')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json($fields ?: [
+            'isEnabled' => false,
+            'isLive' => false,
+            'isWithdrawEnabled' => false,
+            'paypalClient' => '',
+            'paypalSecret' => '',
+            'paypalAppId' => ''
+        ]);
+    }
+
+    public function updatePayPalSettings(Request $request)
+    {
+        $fields = [
+            'isEnabled' => $request->boolean('isEnabled'),
+            'isLive' => $request->boolean('isLive'),
+            'isWithdrawEnabled' => $request->boolean('isWithdrawEnabled'),
+            'paypalClient' => $request->input('paypalClient', ''),
+            'paypalSecret' => $request->input('paypalSecret', ''),
+            'paypalAppId' => $request->input('paypalAppId', '')
+        ];
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'paypalSettings'],
+            ['document_name' => 'paypalSettings', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * PayStack Settings
+     */
+    public function getPayStackSettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'payStack')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json($fields ?: [
+            'isEnable' => false,
+            'isSandbox' => false,
+            'publicKey' => '',
+            'secretKey' => '',
+            'callbackURL' => '',
+            'webhookURL' => ''
+        ]);
+    }
+
+    public function updatePayStackSettings(Request $request)
+    {
+        $fields = [
+            'isEnable' => $request->boolean('isEnable'),
+            'isSandbox' => $request->boolean('isSandbox'),
+            'publicKey' => $request->input('publicKey', ''),
+            'secretKey' => $request->input('secretKey', ''),
+            'callbackURL' => $request->input('callbackURL', ''),
+            'webhookURL' => $request->input('webhookURL', '')
+        ];
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'payStack'],
+            ['document_name' => 'payStack', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * FlutterWave Settings
+     */
+    public function getFlutterWaveSettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'flutterWave')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json($fields ?: [
+            'isEnable' => false,
+            'isSandbox' => false,
+            'isWithdrawEnabled' => false,
+            'publicKey' => '',
+            'secretKey' => '',
+            'encryptionKey' => ''
+        ]);
+    }
+
+    public function updateFlutterWaveSettings(Request $request)
+    {
+        $fields = [
+            'isEnable' => $request->boolean('isEnable'),
+            'isSandbox' => $request->boolean('isSandbox'),
+            'isWithdrawEnabled' => $request->boolean('isWithdrawEnabled'),
+            'publicKey' => $request->input('publicKey', ''),
+            'secretKey' => $request->input('secretKey', ''),
+            'encryptionKey' => $request->input('encryptionKey', '')
+        ];
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'flutterWave'],
+            ['document_name' => 'flutterWave', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * PayFast Settings
+     */
+    public function getPayFastSettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'payFastSettings')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json($fields ?: [
+            'isEnable' => false,
+            'isSandbox' => false,
+            'merchant_id' => '',
+            'merchant_key' => '',
+            'return_url' => '',
+            'cancel_url' => '',
+            'notify_url' => ''
+        ]);
+    }
+
+    public function updatePayFastSettings(Request $request)
+    {
+        $fields = [
+            'isEnable' => $request->boolean('isEnable'),
+            'isSandbox' => $request->boolean('isSandbox'),
+            'merchant_id' => $request->input('merchant_id', ''),
+            'merchant_key' => $request->input('merchant_key', ''),
+            'return_url' => $request->input('return_url', ''),
+            'cancel_url' => $request->input('cancel_url', ''),
+            'notify_url' => $request->input('notify_url', '')
+        ];
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'payFastSettings'],
+            ['document_name' => 'payFastSettings', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Paytm Settings
+     */
+    public function getPaytmSettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'PaytmSettings')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json($fields ?: [
+            'isEnabled' => false,
+            'isSandboxEnabled' => false,
+            'PaytmMID' => '',
+            'PAYTM_MERCHANT_KEY' => ''
+        ]);
+    }
+
+    public function updatePaytmSettings(Request $request)
+    {
+        $fields = [
+            'isEnabled' => $request->boolean('isEnabled'),
+            'isSandboxEnabled' => $request->boolean('isSandboxEnabled'),
+            'PaytmMID' => $request->input('PaytmMID', ''),
+            'PAYTM_MERCHANT_KEY' => $request->input('PAYTM_MERCHANT_KEY', '')
+        ];
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'PaytmSettings'],
+            ['document_name' => 'PaytmSettings', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Mercado Pago Settings
+     */
+    public function getMercadoPagoSettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'MercadoPago')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json($fields ?: [
+            'isEnabled' => false,
+            'isSandboxEnabled' => false,
+            'PublicKey' => '',
+            'AccessToken' => ''
+        ]);
+    }
+
+    public function updateMercadoPagoSettings(Request $request)
+    {
+        $fields = [
+            'isEnabled' => $request->boolean('isEnabled'),
+            'isSandboxEnabled' => $request->boolean('isSandboxEnabled'),
+            'PublicKey' => $request->input('PublicKey', ''),
+            'AccessToken' => $request->input('AccessToken', '')
+        ];
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'MercadoPago'],
+            ['document_name' => 'MercadoPago', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Wallet Settings
+     */
+    public function getWalletSettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'WalletSetting')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json([
+            'isEnabled' => (bool) ($fields['isEnabled'] ?? false)
+        ]);
+    }
+
+    public function updateWalletSettings(Request $request)
+    {
+        $fields = ['isEnabled' => $request->boolean('isEnabled')];
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'WalletSetting'],
+            ['document_name' => 'WalletSetting', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Global Settings
+     */
+    public function getGlobalSettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'globalSettings')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json($fields ?: []);
+    }
+
+    public function updateGlobalSettings(Request $request)
+    {
+        $rec = DB::table('settings')->where('document_name', 'globalSettings')->first();
+        $existing = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+
+        // Merge all input with existing
+        $fields = array_merge($existing, $request->except(['_token']));
+
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'globalSettings'],
+            ['document_name' => 'globalSettings', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Notification Settings
+     */
+    public function getNotificationSettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'notification_setting')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json($fields ?: [
+            'senderId' => '',
+            'projectId' => '',
+            'serviceJson' => ''
+        ]);
+    }
+
+    public function updateNotificationSettings(Request $request)
+    {
+        $fields = [
+            'senderId' => $request->input('senderId', ''),
+            'projectId' => $request->input('projectId', ''),
+            'serviceJson' => $request->input('serviceJson', '')
+        ];
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'notification_setting'],
+            ['document_name' => 'notification_setting', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Xendit Settings
+     */
+    public function getXenditSettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'xendit_settings')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json($fields ?: [
+            'enable' => false,
+            'isSandbox' => false,
+            'apiKey' => '',
+            'name' => 'Xendit',
+            'image' => ''
+        ]);
+    }
+
+    public function updateXenditSettings(Request $request)
+    {
+        $fields = [
+            'enable' => $request->boolean('enable'),
+            'isSandbox' => $request->boolean('isSandbox'),
+            'apiKey' => $request->input('apiKey', ''),
+            'name' => $request->input('name', 'Xendit'),
+            'image' => $request->input('image', '')
+        ];
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'xendit_settings'],
+            ['document_name' => 'xendit_settings', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Midtrans Settings
+     */
+    public function getMidtransSettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'midtrans_settings')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json($fields ?: [
+            'enable' => false,
+            'isSandbox' => false,
+            'serverKey' => '',
+            'name' => 'MidTrans',
+            'image' => ''
+        ]);
+    }
+
+    public function updateMidtransSettings(Request $request)
+    {
+        $fields = [
+            'enable' => $request->boolean('enable'),
+            'isSandbox' => $request->boolean('isSandbox'),
+            'serverKey' => $request->input('serverKey', ''),
+            'name' => $request->input('name', 'MidTrans'),
+            'image' => $request->input('image', '')
+        ];
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'midtrans_settings'],
+            ['document_name' => 'midtrans_settings', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Orange Pay Settings
+     */
+    public function getOrangePaySettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'orange_money_settings')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json($fields ?: [
+            'enable' => false,
+            'isSandbox' => false,
+            'merchantKey' => '',
+            'auth' => '',
+            'clientId' => '',
+            'clientSecret' => '',
+            'returnUrl' => '',
+            'cancelUrl' => '',
+            'notifyUrl' => ''
+        ]);
+    }
+
+    public function updateOrangePaySettings(Request $request)
+    {
+        $rec = DB::table('settings')->where('document_name', 'orange_money_settings')->first();
+        $existing = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+
+        $fields = array_merge($existing, [
+            'enable' => $request->boolean('enable'),
+            'isSandbox' => $request->boolean('isSandbox'),
+            'merchantKey' => $request->input('merchantKey', ''),
+            'auth' => $request->input('auth', ''),
+            'clientId' => $request->input('clientId', ''),
+            'clientSecret' => $request->input('clientSecret', ''),
+            'returnUrl' => $request->input('returnUrl', ''),
+            'cancelUrl' => $request->input('cancelUrl', ''),
+            'notifyUrl' => $request->input('notifyUrl', '')
+        ]);
+
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'orange_money_settings'],
+            ['document_name' => 'orange_money_settings', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Story Settings
+     */
+    public function getStorySettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'story')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json($fields ?: [
+            'isEnabled' => false,
+            'videoDuration' => 30
+        ]);
+    }
+
+    public function updateStorySettings(Request $request)
+    {
+        $fields = [
+            'isEnabled' => $request->boolean('isEnabled'),
+            'videoDuration' => (int) $request->input('videoDuration', 30)
+        ];
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'story'],
+            ['document_name' => 'story', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Special Discount Offer Settings
+     */
+    public function getSpecialOfferSettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'specialDiscountOffer')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json([
+            'isEnable' => (bool) ($fields['isEnable'] ?? false)
+        ]);
+    }
+
+    public function updateSpecialOfferSettings(Request $request)
+    {
+        $fields = ['isEnable' => $request->boolean('isEnable')];
+        DB::table('settings')->updateOrInsert(
+            ['document_name' => 'specialDiscountOffer'],
+            ['document_name' => 'specialDiscountOffer', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+        );
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Upload image (base64)
+     */
+    public function uploadImage(Request $request)
+    {
+        try {
+            $image = $request->input('image');
+            $filename = $request->input('filename', 'image_' . time() . '.jpg');
+
+            // Remove base64 prefix if exists
+            if (strpos($image, 'data:image') === 0) {
+                $image = preg_replace('/^data:image\/\w+;base64,/', '', $image);
+            }
+
+            $imageData = base64_decode($image);
+            $path = 'images/' . $filename;
+            \Storage::disk('public')->put($path, $imageData);
+
+            $url = asset('storage/' . $path);
+
+            return response()->json([
+                'success' => true,
+                'url' => $url,
+                'path' => $path
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Image upload error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Image upload failed: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Upload audio (base64)
+     */
+    public function uploadAudio(Request $request)
+    {
+        try {
+            $audio = $request->input('audio');
+            $filename = $request->input('filename', 'audio_' . time() . '.mp3');
+
+            // Remove base64 prefix if exists
+            if (strpos($audio, 'data:audio') === 0) {
+                $audio = preg_replace('/^data:audio\/\w+;base64,/', '', $audio);
+            }
+
+            $audioData = base64_decode($audio);
+            $path = 'audio/' . $filename;
+            \Storage::disk('public')->put($path, $audioData);
+
+            $url = asset('storage/' . $path);
+
+            return response()->json([
+                'success' => true,
+                'url' => $url,
+                'path' => $path
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Audio upload error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Audio upload failed: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Upload JSON file
+     */
+    public function uploadJson(Request $request)
+    {
+        try {
+            $request->validate([
+                'file' => 'required|file|mimes:json|max:2048'
+            ]);
+
+            $file = $request->file('file');
+            $filename = $file->getClientOriginalName();
+            $timestamp = time();
+            $filename = pathinfo($filename, PATHINFO_FILENAME) . '_' . $timestamp . '.json';
+
+            $path = $file->storeAs('json', $filename, 'public');
+            $url = asset('storage/' . $path);
+
+            return response()->json([
+                'success' => true,
+                'url' => $url,
+                'path' => $path
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('JSON upload error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'JSON upload failed: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get Languages Settings
+     */
+    public function getLanguagesSettings()
+    {
+        $rec = DB::table('settings')->where('document_name', 'languages')->first();
+        $fields = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
+        return response()->json([
+            'success' => true,
+            'list' => $fields['list'] ?? []
+        ]);
+    }
+
+    /**
+     * Update Languages Settings
+     */
+    public function updateLanguagesSettings(Request $request)
+    {
+        try {
+            $languages = $request->input('list', []);
+            \Log::info('Updating languages:', ['count' => count($languages), 'data' => $languages]);
+
+            $fields = ['list' => $languages];
+            $jsonFields = json_encode($fields, JSON_UNESCAPED_UNICODE);
+
+            \Log::info('JSON to save:', ['json' => $jsonFields]);
+
+            DB::table('settings')->updateOrInsert(
+                ['document_name' => 'languages'],
+                [
+                    'document_name' => 'languages',
+                    'fields' => $jsonFields
+                ]
+            );
+
+            // Verify the update
+            $updated = DB::table('settings')->where('document_name', 'languages')->first();
+            \Log::info('After update:', ['fields' => $updated->fields]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Languages updated successfully',
+                'count' => count($languages)
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error updating languages: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error updating languages: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get a setting from the database
+     */
+    public function getSetting($documentName)
+    {
+        try {
+            $setting = DB::table('settings')
+                ->where('document_name', $documentName)
+                ->first();
+
+            if (!$setting) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Setting not found',
+                    'data' => null
+                ]);
+            }
+
+            $data = json_decode($setting->fields, true);
+
+            return response()->json([
+                'success' => true,
+                'data' => $data
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching setting: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Update a setting in the database
+     */
+    public function updateSetting(Request $request, $documentName)
+    {
+        try {
+            // Get existing setting
+            $setting = DB::table('settings')
+                ->where('document_name', $documentName)
+                ->first();
+
+            $currentData = $setting ? json_decode($setting->fields, true) : [];
+
+            // Merge new data with existing data
+            $newData = array_merge($currentData, $request->except('_token'));
+
+            // Update or create
+            DB::table('settings')->updateOrInsert(
+                ['document_name' => $documentName],
+                [
+                    'document_name' => $documentName,
+                    'fields' => json_encode($newData)
+                ]
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Setting updated successfully',
+                'data' => $newData
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error updating setting: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error updating setting: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }

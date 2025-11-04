@@ -99,7 +99,7 @@
         var logo_url = "";
         var new_logo_url = "";
         var logoToDelete = [];
-        var placeholderImage = '{{ asset('assets/images/placeholder-image.png') }}';
+        var placeholderImage = '{{ asset('images/placeholder.png') }}';
 
         $(document).ready(function () {
             jQuery("#data-table_processing").show();

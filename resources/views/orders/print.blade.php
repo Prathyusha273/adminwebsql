@@ -277,7 +277,7 @@
                     var currentCurrency = currency?.symbol || '₹';
                     var currencyAtRight = currency?.symbolAtRight || false;
                     var decimal_degits = currency?.decimal_degits || 2;
-                    var place_image = '{{ asset("assets/images/placeholder-image.png") }}';
+                    var place_image = '{{ asset("images/placeholder.png") }}';
                     // Initialize accumulators used in builders
                     var total_price = 0;
                     var total_addon_price = 0;

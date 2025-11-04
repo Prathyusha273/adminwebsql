@@ -398,19 +398,7 @@
 @endsection
 @section('scripts')
     <script>
-        var database = firebase.firestore();
-        var ref = database.collection('settings').doc("globalSettings");
-        var mapKey = database.collection('settings').doc("googleMapKey");
-        var refPlaceholderImage = database.collection('settings').doc("placeHolderImage");
-        var contactUs = database.collection('settings').doc("ContactUs");
-        var version = database.collection('settings').doc("Version");
-        var restaurant = database.collection('settings').doc("restaurant");
-        var story = database.collection('settings').doc("story");
-        var DriverNearByRef = database.collection('settings').doc("DriverNearBy");
-        var referralAmountRef = database.collection('settings').doc("referral_amount");
-        var refEmailSetting = database.collection('settings').doc("emailSetting");
-        var homepagethemeRef = database.collection('settings').doc("home_page_theme");
-        var refNotificationSetting = database.collection('settings').doc("notification_setting");
+        // SQL mode - no Firebase
         var theme_1_url = '{!! url('images/app_homepage_theme_1.png') !!}';
         var theme_2_url = '{!! url('images/app_homepage_theme_2.png') !!}';
         var photo = "";
@@ -423,33 +411,38 @@
         var favIconFileName = '';
         var serviceJsonFile = '';
         var placeholderFileName = '';
-        var storageRef = firebase.storage().ref('images');
-        var storageAudioRef = firebase.storage().ref('audio');
-        var storage = firebase.storage();
         var audioData = '';
         var audioFileName = '';
         var oldAudioData = '';
-        var refCurrency = database.collection('currencies').where('isActive', '==', true);
-        refCurrency.get().then(async function(snapshots) {
-            var currencyData = snapshots.docs[0].data();
-            $(".currentCurrency").text(currencyData.symbol);
+
+        // Load currency from SQL
+        $.ajax({
+            url: '{{ route("payments.currency") }}',
+            method: 'GET',
+            success: function(response) {
+                if (response.success && response.data) {
+                    $(".currentCurrency").text(response.data.symbol);
+                }
+            },
+            error: function() {
+                $(".currentCurrency").text('₹');
+            }
         });
         $(document).ready(function() {
             jQuery("#data-table_processing").show();
-            ref.get().then(async function(snapshots) {
-                var globalSettings = snapshots.data();
-                if (globalSettings == undefined) {
-                    database.collection('settings').doc('globalSettings').set({});
-                }
+
+            // Load global settings from SQL
+            $.get("{{ route('api.global.settings') }}", function(globalSettings) {
                 try {
-                    $(".application_name").val(globalSettings.applicationName);
-                    $(".meta_title").val(globalSettings.meta_title)
-                    $("#website_color").val(globalSettings.website_color);
-                    $("#admin_color").val(globalSettings.admin_panel_color);
-                    $("#store_color").val(globalSettings.store_panel_color);
-                    $("#customer_app_color").val(globalSettings.app_customer_color);
-                    $("#driver_app_color").val(globalSettings.app_driver_color);
-                    $("#restaurant_app_color").val(globalSettings.app_restaurant_color);
+                    $(".application_name").val(globalSettings.applicationName || '');
+                    $(".meta_title").val(globalSettings.meta_title || '');
+                    $("#website_color").val(globalSettings.website_color || '#fa8500');
+                    $("#admin_color").val(globalSettings.admin_panel_color || '#ff6839');
+                    $("#store_color").val(globalSettings.store_panel_color || '#ff683a');
+                    $("#customer_app_color").val(globalSettings.app_customer_color || '#f47825');
+                    $("#driver_app_color").val(globalSettings.app_driver_color || '#c33737');
+                    $("#restaurant_app_color").val(globalSettings.app_restaurant_color || '#e7463c');
+
                     if (globalSettings.appLogo != "" && globalSettings.appLogo != null) {
                         photo = globalSettings.appLogo;
                         appLogoImagePath = globalSettings.appLogo;
@@ -468,7 +461,7 @@
                     if (globalSettings.order_ringtone_url != '' && globalSettings.order_ringtone_url != null) {
                         audioData = globalSettings.order_ringtone_url;
                         oldVideo = globalSettings.order_ringtone_url;
-                        console.log(audioData);
+                        console.log('Audio URL:', audioData);
                         var html = '<div class="col-md-3">\n' +
                             '<div class="audio-inner">\n' +
                             '  <audio controls>\n' +
@@ -478,163 +471,139 @@
                             '</div>\n' +
                             '</div>';
                         $(".ringtone_file").html(html);
-
                     }
-                } catch (error) {}
+                } catch (error) {
+                    console.error('Error loading global settings:', error);
+                }
                 jQuery("#data-table_processing").hide();
-            })
-            refNotificationSetting.get().then(async function(snapshots) {
-                var notificationData = snapshots.data();
-                if (notificationData == undefined) {
-                    database.collection('settings').doc('notification_setting').set({});
-                } else {
-                    if (notificationData.senderId != '' && notificationData.senderId != null) {
-                        $('#sender_id').val(notificationData.senderId);
-                    }
-                    if (notificationData.serviceJson != '' && notificationData.serviceJson != null) {
-                        $('#uploded_json_file').html("<a href='" + notificationData.serviceJson +
-                            "' class='btn-link pl-3' target='_blank'>See Uploaded File</a>");
-                        serviceJsonFile = notificationData.serviceJson;
-                    }
+            }).fail(function() {
+                jQuery("#data-table_processing").hide();
+                console.error('Failed to load global settings from SQL');
+            });
+
+            // Load all other settings from SQL
+            loadAllSettings();
+        });
+
+        // Function to load all settings from SQL database
+        function loadAllSettings() {
+            // Load notification settings
+            $.get("{{ route('api.notification.settings') }}", function(notificationData) {
+                if (notificationData.senderId) {
+                    $('#sender_id').val(notificationData.senderId);
+                }
+                if (notificationData.serviceJson) {
+                    $('#uploded_json_file').html("<a href='" + notificationData.serviceJson +
+                        "' class='btn-link pl-3' target='_blank'>See Uploaded File</a>");
+                    serviceJsonFile = notificationData.serviceJson;
                 }
             });
-            refPlaceholderImage.get().then(async function(snapshots) {
-                var placeholderImage = snapshots.data();
-                jQuery("#data-table_processing").hide();
-                if (placeholderImage.image != "" && placeholderImage.image != null) {
-                    placeholderphoto = placeholderImage.image;
-                    placeholderImagePath = placeholderImage.image;
+
+            // Load placeholder image from global settings
+            $.get("{{ route('api.global.settings') }}", function(data) {
+                if (data.placeHolderImage) {
+                    placeholderphoto = data.placeHolderImage;
+                    placeholderImagePath = data.placeHolderImage;
                     $(".placeholder_img_thumb").append('<img class="rounded" style="width:50px" src="' +
                         placeholderphoto + '" alt="image">');
                 }
-            })
-            restaurant.get().then(async function(snapshots) {
-                var restaurantdata = snapshots.data();
-                if (restaurantdata == undefined) {
-                    database.collection('settings').doc('restaurant').set({});
+                // Restaurant auto-approve
+                if (data.auto_approve_restaurant) {
+                    $("#auto_approve_restaurant").prop('checked', true);
                 }
-                try {
-                    if (restaurantdata.auto_approve_restaurant) {
-                        $("#auto_approve_restaurant").prop('checked', true);
-                    }
-                } catch (error) {}
-                jQuery("#data-table_processing").hide();
-            })
-            story.get().then(async function(snapshots) {
-                var story_data = snapshots.data();
-                if (story_data == undefined) {
-                    database.collection('settings').doc('story').set({});
+                // Map key
+                if (data.map_key) {
+                    $('#map_key').val(data.map_key);
                 }
-                try {
-                    if (story_data.isEnabled) {
-                        $("#restaurant_can_upload_story").prop('checked', true);
-                        $("#story_upload_time_div").show();
-                    }
+                // Driver settings
+                if (data.minimumDepositToRideAccept) {
+                    $(".minimum_deposit_amount").val(data.minimumDepositToRideAccept);
+                }
+                if (data.minimumAmountToWithdrawal) {
+                    $(".minimum_withdrawal_amount").val(data.minimumAmountToWithdrawal);
+                }
+                if (data.mapType) {
+                    $('#map_type').val(data.mapType).trigger('change');
+                }
+                if (data.selectedMapType) {
+                    $('#selectedMapType').val(data.selectedMapType).trigger('change');
+                }
+                if (data.driverLocationUpdate) {
+                    $('#driver_location_update').val(data.driverLocationUpdate);
+                }
+                if (data.singleOrderReceive) {
+                    $('#single_order_receive').prop('checked', true);
+                }
+                if (data.auto_approve_driver) {
+                    $('#auto_approve_driver').prop('checked', true);
+                }
+                // Referral amount
+                if (data.referralAmount) {
+                    $(".referral_amount").val(data.referralAmount);
+                }
+                // Email settings
+                if (data.fromName) {
+                    $('.from_name').val(data.fromName);
+                }
+                if (data.host) {
+                    $('.host').val(data.host);
+                }
+                if (data.port) {
+                    $('.port').val(data.port);
+                }
+                if (data.userName) {
+                    $('.user_name').val(data.userName);
+                }
+                if (data.password) {
+                    $('.password').val(data.password);
+                }
+                // Version data
+                if (data.app_version) {
+                    $('.app_version').val(data.app_version);
+                }
+                if (data.web_version) {
+                    $('#web_version').val(data.web_version);
+                }
+                if (data.appStoreLink) {
+                    $('#app_store_link').val(data.appStoreLink);
+                }
+                if (data.googlePlayLink) {
+                    $('#play_store_link').val(data.googlePlayLink);
+                }
+                if (data.websiteUrl) {
+                    $('#website_url').val(data.websiteUrl);
+                }
+                if (data.storeUrl) {
+                    $('#store_url').val(data.storeUrl);
+                }
+                // Contact us
+                if (data.Address) {
+                    $('.contact_us_address').val(data.Address);
+                }
+                if (data.Email) {
+                    $('.contact_us_email').val(data.Email);
+                }
+                if (data.Phone) {
+                    $('.contact_us_phone').val(data.Phone);
+                }
+            });
+
+            // Load story settings
+            $.get("{{ route('api.story.settings') }}", function(story_data) {
+                if (story_data.isEnabled) {
+                    $("#restaurant_can_upload_story").prop('checked', true);
+                    $("#story_upload_time_div").show();
+                }
+                if (story_data.videoDuration) {
                     $("#story_upload_time").val(story_data.videoDuration);
-                } catch (error) {}
+                }
             });
-            version.get().then(async function(snapshots) {
-                var version_data = snapshots.data();
-                if (version_data == undefined) {
-                    database.collection('settings').doc('Version').set({});
-                }
-                try {
-                    $('.app_version').val(version_data.app_version);
-                    $('#web_version').val(version_data.web_version);
-                    $('#app_store_link').val(version_data.appStoreLink);
-                    $('#play_store_link').val(version_data.googlePlayLink);
-                    $('#website_url').val(version_data.websiteUrl);
-                    $('#store_url').val(version_data.storeUrl);
-                } catch (error) {}
-            });
-            contactUs.get().then(async function(snapshots) {
-                var contactUsData = snapshots.data();
-                if (contactUsData == undefined) {
-                    database.collection('settings').doc('ContactUs').set({});
-                }
-                try {
-                    $('.contact_us_address').val(contactUsData.Address);
-                    $('.contact_us_email').val(contactUsData.Email);
-                    $('.contact_us_phone').val(contactUsData.Phone);
-                } catch (error) {}
-            })
-            mapKey.get().then(async function(snapshots) {
-                var key = snapshots.data();
-                if (key == undefined) {
-                    database.collection('settings').doc('googleMapKey').set({});
-                }
-                try {
-                    $('#map_key').val(key.key);
-                } catch (error) {}
-            });
-            DriverNearByRef.get().then(async function(snapshots) {
-                var DriverNearData = snapshots.data();
-                if (DriverNearData == undefined) {
-                    database.collection('settings').doc('DriverNearBy').set({});
-                }
-                try {
-                    $(".minimum_deposit_amount").val(DriverNearData.minimumDepositToRideAccept);
-                    $(".minimum_withdrawal_amount").val(DriverNearData.minimumAmountToWithdrawal);
-                    if (DriverNearData.mapType) {
-                        $('#map_type').val(DriverNearData.mapType).trigger('change');
-                    }
-                    if (DriverNearData.selectedMapType) {
-                        $('#selectedMapType').val(DriverNearData.selectedMapType).trigger('change');
-                    }
-                    if (DriverNearData.driverLocationUpdate) {
-                        $('#driver_location_update').val(DriverNearData.driverLocationUpdate);
-                    }
-                    if (DriverNearData.singleOrderReceive) {
-                        $('#single_order_receive').prop('checked', true);
-                    } else {
-                        $('#single_order_receive').prop('checked', false);
-                    }
-                    if (DriverNearData.auto_approve_driver) {
-                        $('#auto_approve_driver').prop('checked', true);
-                    } else {
-                        $('#auto_approve_driver').prop('checked', false);
-                    }
-                } catch (error) {}
-            })
-            referralAmountRef.get().then(async function(snapshots) {
-                var referralAmountData = snapshots.data();
-                if (referralAmountData == undefined) {
-                    database.collection('settings').doc('referral_amount').set({});
-                }
-                try {
-                    $(".referral_amount").val(referralAmountData.referralAmount);
-                } catch (error) {}
-                jQuery("#data-table_processing").hide();
-            })
-            refEmailSetting.get().then(async function(snapshots) {
-                var emailSettingData = snapshots.data();
-                if (emailSettingData == undefined) {
-                    database.collection('settings').doc('emailSetting').set({});
-                }
-                try {
-                    if (emailSettingData.fromName) {
-                        $('.from_name').val(emailSettingData.fromName);
-                    }
-                    if (emailSettingData.host) {
-                        $('.host').val(emailSettingData.host);
-                    }
-                    if (emailSettingData.port) {
-                        $('.port').val(emailSettingData.port);
-                    }
-                    if (emailSettingData.userName) {
-                        $('.user_name').val(emailSettingData.userName);
-                    }
-                    if (emailSettingData.password) {
-                        $('.password').val(emailSettingData.password);
-                    }
-                } catch (error) {}
-                jQuery("#data-table_processing").hide();
-            });
-            homepagethemeRef.get().then(async function(snapshots) {
-                var themeData = snapshots.data();
-                if (themeData.theme == "theme_1") {
+
+            // Load homepage theme
+            $.get("{{ route('api.global.settings') }}", function(data) {
+                if (data.theme == "theme_1") {
                     $("#app_homepage_theme_1").prop('checked', true);
-                } else if (themeData.theme == "theme_2") {
+                } else if (data.theme == "theme_2") {
                     $("#app_homepage_theme_2").prop('checked', true);
                 }
             });
@@ -736,94 +705,130 @@
                 jQuery("#data-table_processing").show();
                 storeImageData().then(IMG => {
                     storeRingtone().then(ringtone => {
-                        database.collection('settings').doc("globalSettings").update({
-                            'website_color': website_color,
-                            'admin_panel_color': admin_color,
-                            'store_panel_color': store_color,
-                            'app_customer_color': customer_app_color,
-                            'app_driver_color': driver_app_color,
-                            'app_restaurant_color': restaurant_app_color,
-                            'applicationName': applicationName,
-                            'meta_title': meta_title,
-                            'appLogo': IMG.photo,
-                            'favicon': IMG.favicon,
-                            'isEnableAdsFeature': enable_adv_feature,
-                            'isSelfDelivery': enable_self_delivery,
-                            'order_ringtone_url': ringtone
-                        });
-                        database.collection('settings').doc('placeHolderImage').update({
-                            'image': IMG.placeholderphoto
-                        });
-                        database.collection('settings').doc("ContactUs").update({
-                            'Address': contact_us_address,
-                            'Email': contact_us_email,
-                            'Phone': contact_us_phone
-                        });
-                        database.collection('settings').doc("Version").update({
-                            'app_version': app_version,
-                            'web_version': web_version,
-                            'appStoreLink': app_store_link,
-                            'googlePlayLink': play_store_link,
-                            'websiteUrl': website_url,
-                            'storeUrl': store_url,
-                        });
-                        database.collection('settings').doc("restaurant").update({
-                            'auto_approve_restaurant': auto_approve_restaurant,
-                        });
-                        database.collection('settings').doc("story").update({
-                            'isEnabled': restaurant_can_upload_story,
-                            'videoDuration': story_upload_time,
-                        });
-                        database.collection('settings').doc("googleMapKey").update({
-                            'key': googleApiKey,
-                        });
-                        database.collection('settings').doc("DriverNearBy").update({
-                            'minimumDepositToRideAccept': minimumDepositToRideAccept,
-                            'minimumAmountToWithdrawal': minimumAmountToWithdrawal,
-                            'selectedMapType': selectedMapType,
-                            'mapType': map_type,
-                            'driverLocationUpdate': driver_location_update,
-                            'singleOrderReceive': single_order_receive,
-                            'auto_approve_driver': auto_approve_driver
-                        });
-                        database.collection('settings').doc("referral_amount").update({
-                            'referralAmount': referralAmount
-                        });
-                        database.collection('settings').doc('home_page_theme').update({
-                            'theme': app_homepage_theme
-                        });
-                        database.collection('settings').doc("notification_setting").update({
-                            'senderId': senderId,
-                            'serviceJson': serviceJsonFile,
-                        });
-                        database.collection('settings').doc("emailSetting").update({
-                            'fromName': fromName,
-                            'host': host,
-                            'port': port,
-                            'userName': userName,
-                            'password': password,
-                            'mailMethod': "smtp",
-                            'mailEncryptionType': "ssl",
-                        }).then(function(result) {
-                            // Refresh custom ringtone in notification system if available
-                            if (typeof window.orderNotificationSystem !== 'undefined' && window.orderNotificationSystem.refreshCustomRingtone) {
-                                window.orderNotificationSystem.refreshCustomRingtone();
-                                console.log('Custom ringtone refreshed after settings save');
+                        // Save all settings to SQL via single API call
+                        $.ajax({
+                            url: "{{ route('api.global.update') }}",
+                            method: 'POST',
+                            headers: {
+                                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                            },
+                            data: {
+                                website_color: website_color,
+                                admin_panel_color: admin_color,
+                                store_panel_color: store_color,
+                                app_customer_color: customer_app_color,
+                                app_driver_color: driver_app_color,
+                                app_restaurant_color: restaurant_app_color,
+                                applicationName: applicationName,
+                                meta_title: meta_title,
+                                appLogo: IMG.photo,
+                                favicon: IMG.favicon,
+                                isEnableAdsFeature: enable_adv_feature,
+                                isSelfDelivery: enable_self_delivery,
+                                order_ringtone_url: ringtone,
+                                placeHolderImage: IMG.placeholderphoto,
+                                Address: contact_us_address,
+                                Email: contact_us_email,
+                                Phone: contact_us_phone,
+                                app_version: app_version,
+                                web_version: web_version,
+                                appStoreLink: app_store_link,
+                                googlePlayLink: play_store_link,
+                                websiteUrl: website_url,
+                                storeUrl: store_url,
+                                auto_approve_restaurant: auto_approve_restaurant,
+                                minimumDepositToRideAccept: minimumDepositToRideAccept,
+                                minimumAmountToWithdrawal: minimumAmountToWithdrawal,
+                                selectedMapType: selectedMapType,
+                                mapType: map_type,
+                                driverLocationUpdate: driver_location_update,
+                                singleOrderReceive: single_order_receive,
+                                auto_approve_driver: auto_approve_driver,
+                                referralAmount: referralAmount,
+                                theme: app_homepage_theme,
+                                map_key: googleApiKey
+                            },
+                            success: function(response) {
+                                // Also update story settings
+                                $.ajax({
+                                    url: "{{ route('api.story.update') }}",
+                                    method: 'POST',
+                                    headers: {
+                                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                                    },
+                                    data: {
+                                        isEnabled: restaurant_can_upload_story,
+                                        videoDuration: story_upload_time
+                                    }
+                                });
+
+                                // Update notification settings
+                                $.ajax({
+                                    url: "{{ route('api.notification.update') }}",
+                                    method: 'POST',
+                                    headers: {
+                                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                                    },
+                                    data: {
+                                        senderId: senderId,
+                                        serviceJson: serviceJsonFile
+                                    }
+                                });
+
+                                // Update email settings in global settings
+                                $.ajax({
+                                    url: "{{ route('api.global.update') }}",
+                                    method: 'POST',
+                                    headers: {
+                                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                                    },
+                                    data: {
+                                        fromName: fromName,
+                                        host: host,
+                                        port: port,
+                                        userName: userName,
+                                        password: password,
+                                        mailMethod: "smtp",
+                                        mailEncryptionType: "ssl"
+                                    },
+                                    success: function() {
+                                        jQuery("#data-table_processing").hide();
+                                        // Refresh custom ringtone in notification system if available
+                                        if (typeof window.orderNotificationSystem !== 'undefined' && window.orderNotificationSystem.refreshCustomRingtone) {
+                                            window.orderNotificationSystem.refreshCustomRingtone();
+                                            console.log('Custom ringtone refreshed after settings save');
+                                        }
+                                        window.location.href = '{{ url('settings/app/globals') }}';
+                                    },
+                                    error: function(xhr) {
+                                        jQuery("#data-table_processing").hide();
+                                        $(".error_top").show();
+                                        $(".error_top").html("");
+                                        $(".error_top").append("<p>Error saving email settings</p>");
+                                        window.scrollTo(0, 0);
+                                    }
+                                });
+                            },
+                            error: function(xhr) {
+                                jQuery("#data-table_processing").hide();
+                                $(".error_top").show();
+                                $(".error_top").html("");
+                                $(".error_top").append("<p>Error saving settings: " + (xhr.responseJSON?.message || 'Unknown error') + "</p>");
+                                window.scrollTo(0, 0);
                             }
-                            window.location.href = '{{ url('settings/app/globals') }}';
                         });
                     }).catch(err => {
                         jQuery("#data-table_processing").hide();
                         $(".error_top").show();
                         $(".error_top").html("");
-                        $(".error_top").append("<p>" + err + "</p>");
+                        $(".error_top").append("<p>Ringtone upload error: " + err + "</p>");
                         window.scrollTo(0, 0);
                     });
                 }).catch(err => {
                     jQuery("#data-table_processing").hide();
                     $(".error_top").show();
                     $(".error_top").html("");
-                    $(".error_top").append("<p>" + err + "</p>");
+                    $(".error_top").append("<p>Image upload error: " + err + "</p>");
                     window.scrollTo(0, 0);
                 });
             }
@@ -850,56 +855,76 @@
             var modal = $(this);
             modal.find('#themeImage').attr('src', '');
         });
-        var storageRef = firebase.storage().ref('images');
+        // Upload images using Laravel API
         async function storeImageData() {
             var newPhoto = [];
             try {
-                if (appLogoImagePath != "" && photo != appLogoImagePath) {
-                    var appLogoImagePathRef = await storage.refFromURL(appLogoImagePath);
-                }
-                if (photo != appLogoImagePath) {
-                    photo = photo.replace(/^data:image\/[a-z]+;base64,/, "")
-                    var uploadTask = await storageRef.child(logoFileName).putString(photo, 'base64', {
-                        contentType: 'image/jpg'
-                    });
-                    var downloadURL = await uploadTask.ref.getDownloadURL();
-                    newPhoto['photo'] = downloadURL;
-                    photo = downloadURL;
+                // Upload app logo if changed
+                if (photo != appLogoImagePath && photo) {
+                    var uploadedPhoto = await uploadImageToServer(photo, logoFileName);
+                    if (uploadedPhoto) {
+                        newPhoto['photo'] = uploadedPhoto;
+                        photo = uploadedPhoto;
+                    } else {
+                        newPhoto['photo'] = appLogoImagePath;
+                    }
                 } else {
-                    newPhoto['photo'] = photo;
+                    newPhoto['photo'] = photo || appLogoImagePath;
                 }
-                if (appFavIconImagePath != "" && favicon != appFavIconImagePath) {
-                    var appFavIconImagePathRef = await storage.refFromURL(appFavIconImagePath);
-                }
-                if (favicon != appFavIconImagePath) {
-                    favicon = favicon.replace(/^data:image\/[a-z]+;base64,/, "")
-                    var uploadTask = await storageRef.child(favIconFileName).putString(favicon, 'base64', {
-                        contentType: 'image/jpg'
-                    });
-                    var downloadURL = await uploadTask.ref.getDownloadURL();
-                    newPhoto['favicon'] = downloadURL;
-                    favicon = downloadURL;
+
+                // Upload favicon if changed
+                if (favicon != appFavIconImagePath && favicon) {
+                    var uploadedFavicon = await uploadImageToServer(favicon, favIconFileName);
+                    if (uploadedFavicon) {
+                        newPhoto['favicon'] = uploadedFavicon;
+                        favicon = uploadedFavicon;
+                    } else {
+                        newPhoto['favicon'] = appFavIconImagePath;
+                    }
                 } else {
-                    newPhoto['favicon'] = favicon;
+                    newPhoto['favicon'] = favicon || appFavIconImagePath;
                 }
-                if (placeholderImagePath != "" && placeholderphoto != placeholderImagePath) {
-                    var placeholderImagePathRef = await storage.refFromURL(placeholderImagePath);
-                }
-                if (placeholderphoto != placeholderImagePath) {
-                    placeholderphoto = placeholderphoto.replace(/^data:image\/[a-z]+;base64,/, "")
-                    var uploadTask = await storageRef.child(placeholderFileName).putString(placeholderphoto, 'base64', {
-                        contentType: 'image/jpg'
-                    });
-                    var downloadURL = await uploadTask.ref.getDownloadURL();
-                    newPhoto['placeholderphoto'] = downloadURL;
-                    placeholderphoto = downloadURL;
+
+                // Upload placeholder if changed
+                if (placeholderphoto != placeholderImagePath && placeholderphoto) {
+                    var uploadedPlaceholder = await uploadImageToServer(placeholderphoto, placeholderFileName);
+                    if (uploadedPlaceholder) {
+                        newPhoto['placeholderphoto'] = uploadedPlaceholder;
+                        placeholderphoto = uploadedPlaceholder;
+                    } else {
+                        newPhoto['placeholderphoto'] = placeholderImagePath;
+                    }
                 } else {
-                    newPhoto['placeholderphoto'] = placeholderphoto;
+                    newPhoto['placeholderphoto'] = placeholderphoto || placeholderImagePath;
                 }
             } catch (error) {
-                console.log("ERR ===", error);
+                console.error("Image upload error:", error);
             }
             return newPhoto;
+        }
+
+        // Helper function to upload image to Laravel server
+        async function uploadImageToServer(base64Data, filename) {
+            try {
+                var response = await $.ajax({
+                    url: '/upload-image',
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                    },
+                    data: {
+                        image: base64Data,
+                        filename: filename
+                    }
+                });
+                if (response.success) {
+                    return response.url;
+                }
+                return null;
+            } catch (error) {
+                console.error('Upload error:', error);
+                return null;
+            }
         }
 
         function handleFileSelect(evt) {
@@ -973,33 +998,34 @@
 
         function handleUploadJsonFile(evt) {
             var f = evt.target.files[0];
-            var reader = new FileReader();
-            reader.onload = (function(theFile) {
-                return function(e) {
-                    var filePayload = e.target.result;
-                    var hash = CryptoJS.SHA256(Math.random() + CryptoJS.SHA256(filePayload));
-                    var val = f.name;
-                    var ext = val.split('.')[1];
-                    var docName = val.split('fakepath')[1];
-                    var filename = (f.name).replace(/C:\\fakepath\\/i, '')
-                    var timestamp = Number(new Date());
-                    var filename = filename.split('.')[0] + "_" + timestamp + '.' + ext;
-                    var uploadTask = firebase.storage().ref('/').child(filename).put(theFile);
-                    uploadTask.on('state_changed', function(snapshot) {
-                        var progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                        jQuery("#uploding_json_file").text("File is uploading...");
-                    }, function(error) {}, function() {
-                        uploadTask.snapshot.ref.getDownloadURL().then(function(downloadURL) {
-                            jQuery("#uploding_json_file").text("Upload is completed");
-                            serviceJsonFile = downloadURL;
-                            setTimeout(function() {
-                                jQuery("#uploding_json_file").hide();
-                            }, 3000);
-                        });
-                    });
-                };
-            })(f);
-            reader.readAsDataURL(f);
+            var formData = new FormData();
+            formData.append('file', f);
+
+            jQuery("#uploding_json_file").text("File is uploading...");
+
+            $.ajax({
+                url: '/upload-json',
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function(response) {
+                    if (response.success) {
+                        jQuery("#uploding_json_file").text("Upload is completed");
+                        serviceJsonFile = response.url;
+                        setTimeout(function() {
+                            jQuery("#uploding_json_file").hide();
+                        }, 3000);
+                    }
+                },
+                error: function(xhr) {
+                    jQuery("#uploding_json_file").text("Upload failed");
+                    console.error('JSON upload error:', xhr);
+                }
+            });
         }
 
         async function handleRingtoneSelect(evt) {
@@ -1062,53 +1088,27 @@
         async function storeRingtone() {
             var newAudioURL = audioData;
             try {
-                if (audioData && audioData !== oldAudioData) {
-                    if (oldAudioData) {
-                        try {
-                            var OldImageUrlRef = await storage.refFromURL(oldAudioData);
-                            var envBucket = "<?php echo env('FIREBASE_STORAGE_BUCKET'); ?>";
-                            if (OldImageUrlRef.bucket === envBucket) {
-                                await OldImageUrlRef.delete();
-                                console.log("Old file deleted!");
-                            } else {
-                                console.log('Bucket not matched');
-                            }
-                        } catch (error) {
-                            console.log("Error deleting old file:", error);
+                if (audioData && audioData !== oldAudioData && audioData.startsWith('data:audio')) {
+                    // Upload audio file to Laravel server
+                    var response = await $.ajax({
+                        url: '/upload-audio',
+                        method: 'POST',
+                        headers: {
+                            'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                        },
+                        data: {
+                            audio: audioData,
+                            filename: audioFileName
                         }
-                    }
-
-                    var base64String = audioData.split(',')[1];
-                    var audioBlob = base64ToBlob(base64String, 'audio/mp3');
-                    var uploadTask = storageAudioRef.child(audioFileName).put(audioBlob);
-
-
-                    newAudioURL = await new Promise((resolve, reject) => {
-                        uploadTask.on(
-                            'state_changed',
-                            (snapshot) => {
-                                var progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                                console.log(`Upload is ${progress}% done`);
-                            },
-                            (error) => {
-                                console.log("Error uploading video:", error);
-                                reject(error); // Reject promise if an error occurs
-                            },
-                            async () => {
-                                try {
-                                    let downloadURL = await uploadTask.snapshot.ref.getDownloadURL();
-                                    audioData = downloadURL;
-                                    console.log("Video available at:", downloadURL);
-                                    resolve(downloadURL);
-                                } catch (error) {
-                                    reject(error);
-                                }
-                            }
-                        );
                     });
+                    if (response.success) {
+                        newAudioURL = response.url;
+                        audioData = response.url;
+                        console.log("Audio available at:", newAudioURL);
+                    }
                 }
             } catch (error) {
-                console.log("Error uploading video:", error);
+                console.error("Error uploading audio:", error);
             }
 
             return newAudioURL;

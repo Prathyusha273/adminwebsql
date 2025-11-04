@@ -152,55 +152,73 @@
 @endsection
 @section('scripts')
 <script>
-    var database = firebase.firestore();
-    var refData = database.collection('wallet');
+    var user_id = "<?php echo $id; ?>";
     var search = jQuery("#search").val();
-    $(document.body).on('keyup', '#search', function () {
-        search = jQuery(this).val();
-    });
-    <?php if ($id != '') { ?>
-        ref = refData.where('user_id', '==', '<?php echo $id; ?>').orderBy('date', 'desc');
-    <?php } else { ?>
-        ref = refData.orderBy('date', 'desc');
-    <?php } ?>
     var append_list = '';
     var currentCurrency = '';
     var currencyAtRight = false;
     var decimal_degits = 0;
-    var refCurrency = database.collection('currencies').where('isActive', '==', true);
-    refCurrency.get().then(async function (snapshots) {
-        var currencyData = snapshots.docs[0].data();
-        currentCurrency = currencyData.symbol;
-        currencyAtRight = currencyData.symbolAtRight;
-        if (currencyData.decimal_degits) {
-            decimal_degits = currencyData.decimal_degits;
+
+    $(document.body).on('keyup', '#search', function () {
+        search = jQuery(this).val();
+    });
+
+    // Fetch currency settings from Laravel backend
+    $.ajax({
+        url: '{{ route("payments.currency") }}',
+        method: 'GET',
+        async: false,
+        success: function(response) {
+            if (response.success) {
+                currentCurrency = response.data.symbol;
+                currencyAtRight = response.data.symbolAtRight;
+                decimal_degits = response.data.decimal_degits || 0;
+            }
+        },
+        error: function(xhr, status, error) {
+            console.error('Error fetching currency:', error);
         }
     });
+
     $(document).ready(function () {
         if ('{{$id}}') {
-            var username = database.collection('users').where('id', '==', '{{$id}}');
-            username.get().then(async function (snapshots) {
-                var userDetail = snapshots.docs[0].data();
-                if (userDetail.role == "vendor") {
-                    $(".storeMenuTab").removeClass("d-none");
-                    database.collection('vendors').where('author', '==', userDetail.id).get().then(async function (snapshots) {
-                        var vendorDetail = snapshots.docs[0].data();
-                        document.getElementById('basic').href = `{{ route('restaurants.view', ':id') }}`.replace(':id', vendorDetail.id);
-                        document.getElementById('tab_foods').href = `{{ route('restaurants.foods', ':id') }}`.replace(':id', vendorDetail.id);
-                        document.getElementById('tab_orders').href = `{{ route('restaurants.orders', ':id') }}`.replace(':id', vendorDetail.id);
-                        document.getElementById('tab_promos').href = `{{ route('restaurants.coupons', ':id') }}`.replace(':id', vendorDetail.id);
-                        document.getElementById('tab_payouts').href = `{{ route('restaurants.payout', ':id') }}`.replace(':id', vendorDetail.id);
-                        document.getElementById('dine_in_future').href = `{{ route('restaurants.booktable', ':id') }}`.replace(':id', vendorDetail.id);
-                        document.getElementById('payout_request').href = `{{ route('payoutRequests.restaurants.view', ':id') }}`.replace(':id', vendorDetail.id);
-                    });
+            // Fetch user details from SQL
+            $.ajax({
+                url: '{{ route("walletstransaction.user", ":id") }}'.replace(':id', '{{$id}}'),
+                method: 'GET',
+                success: function(response) {
+                    if (response.success) {
+                        var userDetail = response.data;
+
+                        if (userDetail.role == "vendor") {
+                            $(".storeMenuTab").removeClass("d-none");
+                            // Fetch vendor details
+                            $.ajax({
+                                url: '/vendors/by-author/' + userDetail.id,
+                                method: 'GET',
+                                success: function(vendorResp) {
+                                    if (vendorResp.success) {
+                                        var vendorDetail = vendorResp.data;
+                                        document.getElementById('basic').href = `{{ route('restaurants.view', ':id') }}`.replace(':id', vendorDetail.id);
+                                        document.getElementById('tab_foods').href = `{{ route('restaurants.foods', ':id') }}`.replace(':id', vendorDetail.id);
+                                        document.getElementById('tab_orders').href = `{{ route('restaurants.orders', ':id') }}`.replace(':id', vendorDetail.id);
+                                        document.getElementById('tab_promos').href = `{{ route('restaurants.coupons', ':id') }}`.replace(':id', vendorDetail.id);
+                                        document.getElementById('tab_payouts').href = `{{ route('restaurants.payout', ':id') }}`.replace(':id', vendorDetail.id);
+                                        document.getElementById('dine_in_future').href = `{{ route('restaurants.booktable', ':id') }}`.replace(':id', vendorDetail.id);
+                                        document.getElementById('payout_request').href = `{{ route('payoutRequests.restaurants.view', ':id') }}`.replace(':id', vendorDetail.id);
+                                    }
+                                }
+                            });
+                        }
+                        if (userDetail.role == "driver") {
+                            $(".driverMenuTab").removeClass("d-none");
+                        }
+                        if (userDetail.role == "customer") {
+                            $(".userMenuTab").removeClass("d-none");
+                        }
+                        $(".userTitle").text(' - ' + userDetail.fullName);
+                    }
                 }
-                if (userDetail.role == "driver") {
-                    $(".driverMenuTab").removeClass("d-none");
-                }
-                if (userDetail.role == "customer") {
-                    $(".userMenuTab").removeClass("d-none");
-                }
-                $(".userTitle").text(' - ' + userDetail.firstName + " " + userDetail.lastName);
             });
         }
         $(document.body).on('click', '.redirecttopage', function () {
@@ -234,142 +252,51 @@
             processing: false, // Show processing indicator
             serverSide: true, // Enable server-side processing
             responsive: true,
-            ajax: async function (data, callback, settings) {
-                const start = data.start;
-                const length = data.length;
+            ajax: function (data, callback, settings) {
                 const searchValue = data.search.value.toLowerCase();
-                const orderColumnIndex = data.order[0].column;
-                const orderDirection = data.order[0].dir;
-                const orderableColumns = ('{{$id}}' != '') ? ['','amount', 'date', 'note', 'payment_method', 'payment_status'] : ['','user', 'role', 'amount', 'date', 'note', 'payment_method', 'payment_status']; // Ensure this matches the actual column names
-                const orderByField = orderableColumns[orderColumnIndex]; // Adjust the index to match your table
                 if (searchValue.length >= 3 || searchValue.length === 0) {
                     $('#data-table_processing').show();
                 }
-                await ref.get().then(async function (querySnapshot) {
-                    if (querySnapshot.empty) {
+
+                // Add user_id parameter if filtering by specific user
+                data.user_id = user_id;
+
+                $.ajax({
+                    url: '{{ route("walletstransaction.data") }}',
+                    method: 'GET',
+                    data: data,
+                    success: function(response) {
+                        let records = [];
+
+                        // Update count
+                        $('.total_count').text(response.recordsTotal);
+
+                        // Build HTML for each record
+                        response.data.forEach(function(childData) {
+                            var html = buildHTML(childData);
+                            records.push(html);
+                        });
+
+                        $('#data-table_processing').hide();
+
+                        callback({
+                            draw: data.draw,
+                            recordsTotal: response.recordsTotal,
+                            recordsFiltered: response.recordsFiltered,
+                            data: records
+                        });
+                    },
+                    error: function(xhr, status, error) {
+                        console.error("Error fetching data:", error);
                         $('.total_count').text(0);
-                        console.error("No data found in Firestore.");
-                        $('#data-table_processing').hide(); // Hide loader
+                        $('#data-table_processing').hide();
                         callback({
                             draw: data.draw,
                             recordsTotal: 0,
                             recordsFiltered: 0,
-                            filteredData: [],
-                            data: [] // No data
+                            data: []
                         });
-                        return;
                     }
-                    let records = [];
-                    let filteredRecords = [];
-                    await Promise.all(querySnapshot.docs.map(async (doc) => {
-                        let childData = doc.data();
-                        var user = '';
-                        var role = '';
-                        var payoutuser = await payoutuserfunction(childData.user_id);
-                        if (payoutuser != '') {
-                            if (payoutuser.hasOwnProperty('firstName')) {
-                                user = payoutuser.firstName;
-                            }
-                            if (payoutuser.hasOwnProperty('lastName')) {
-                                user = user + ' ' + payoutuser.lastName;
-                            }
-                            role = payoutuser.role;
-                        }
-                        childData.user = user;
-                        childData.role = role;
-                        childData.payoutuser=payoutuser
-                        childData.id = doc.id;
-                        childData.transactionamount = childData.amount;
-                        if (!isNaN(childData.transactionamount)) {
-                            childData.transactionamount = parseFloat(childData.transactionamount).toFixed(decimal_degits);
-                        }
-                        if ((childData.hasOwnProperty('isTopUp') && childData.isTopUp) || (childData.payment_method == "Cancelled restaurantorders Payment")) {
-                            if (currencyAtRight) {
-                                childData.transactionamount =  parseFloat(childData.transactionamount).toFixed(decimal_degits) + '' + currentCurrency;
-                            } else {
-                                childData.transactionamount =  currentCurrency + '' + parseFloat(childData.transactionamount).toFixed(decimal_degits);
-                            }
-                        } else if (childData.hasOwnProperty('isTopUp') && !childData.isTopUp) {
-                            if (currencyAtRight) {
-                                childData.transactionamount = '-' + parseFloat(childData.transactionamount).toFixed(decimal_degits) + '' + currentCurrency;
-                            } else {
-                                childData.transactionamount = '-' + currentCurrency + '' + parseFloat(childData.transactionamount).toFixed(decimal_degits);
-                            }
-                        } else {
-                            if (currencyAtRight) {
-                                childData.transactionamount =  parseFloat(childData.transactionamount).toFixed(decimal_degits) + '' + currentCurrency;
-                            } else {
-                                childData.transactionamount =  currentCurrency + '' + parseFloat(childData.transactionamount).toFixed(decimal_degits);
-                            }
-                        }
-                        if (searchValue) {
-                            if (childData.hasOwnProperty("date")) {
-                                try {
-                                    date = childData.date.toDate().toDateString();
-                                    time = childData.date.toDate().toLocaleTimeString('en-US');
-                                } catch (err) {
-                                }
-                            }
-                            var date = date + ' ' + time;
-                            if (
-                                (childData.user && childData.user.toString().toLowerCase().includes(searchValue)) ||
-                                (childData.role && childData.role.toString().toLowerCase().includes(searchValue)) ||
-                                (childData.amount && childData.amount.toString().includes(searchValue)) ||
-                                (date && date.toString().toLowerCase().indexOf(searchValue) > -1) ||
-                                (childData.note && (childData.note).toLowerCase().includes(searchValue)) ||
-                                (childData.payment_status && (childData.payment_status).toString().toLowerCase().includes(searchValue))
-                            ) {
-                                filteredRecords.push(childData);
-                            }
-                        } else {
-                            filteredRecords.push(childData);
-                        }
-                    }));
-                    filteredRecords.sort((a, b) => {
-                        let aValue = a[orderByField] ? a[orderByField].toString().toLowerCase() : '';
-                        let bValue = b[orderByField] ? b[orderByField].toString().toLowerCase() : '';
-                        if (orderByField === 'date') {
-                            try {
-                                aValue = a[orderByField] ? new Date(a[orderByField].toDate()).getTime() : 0;
-                                bValue = b[orderByField] ? new Date(b[orderByField].toDate()).getTime() : 0;
-                            } catch (err) {
-                            }
-                        }
-                        if (orderByField === 'amount') {
-                            aValue = a[orderByField] ? parseFloat(a[orderByField]) : 0;
-                            bValue = b[orderByField] ? parseFloat(b[orderByField]) : 0;
-                        }
-                        if (orderDirection === 'asc') {
-                            return (aValue > bValue) ? 1 : -1;
-                        } else {
-                            return (aValue < bValue) ? 1 : -1;
-                        }
-                    });
-                    const totalRecords = filteredRecords.length;
-                    $('.total_count').text(totalRecords);
-                    const paginatedRecords = filteredRecords.slice(start, start + length);
-                    await Promise.all(paginatedRecords.map(async (childData) => {
-                        var getData = await buildHTML(childData);
-                        records.push(getData);
-                    }));
-                    $('#data-table_processing').hide(); // Hide loader
-                    callback({
-                        draw: data.draw,
-                        recordsTotal: totalRecords, // Total number of records in Firestore
-                        recordsFiltered: totalRecords, // Number of records after filtering (if any)
-                        filteredData: filteredRecords,
-                        data: records // The actual data to display in the table
-                    });
-                }).catch(function (error) {
-                    console.error("Error fetching data from Firestore:", error);
-                    $('#data-table_processing').hide(); // Hide loader
-                    callback({
-                        draw: data.draw,
-                        recordsTotal: 0,
-                        recordsFiltered: 0,
-                        filteredData: [],
-                        data: [] // No data due to error
-                    });
                 });
             },
             order: ('{{$id}}' != '') ? [[2, 'desc']] : [[4, 'desc']],
@@ -456,15 +383,15 @@
             }
         }, 300));
     });
-    async function buildHTML(val) {
+    function buildHTML(val) {
         var html = [];
         var id = val.id;
         html.push('<td class="delete-all"><input type="checkbox" id="is_open_' + id + '" class="is_open" dataId="' + id + '"><label class="col-3 control-label"\n' +
         'for="is_open_' + id + '" ></label></td>');
         <?php if ($id == '') { ?>
             if (val.user_id) {
-                var user_role = val.role;
-                var user_name = val.user;
+                var user_role = val.userType;
+                var user_name = val.userName;
                 var routeuser = "Javascript:void(0)";
                 if (user_role == "customer") {
                     routeuser = '{{route("users.view",":id")}}';
@@ -473,10 +400,9 @@
                     routeuser = '{{route("drivers.view",":id")}}';
                     routeuser = routeuser.replace(':id', val.user_id);
                 } else if (user_role == "vendor") {
-                    if (val.payoutuser.vendorID != '') {
-                        routeuser = '{{route("restaurants.view",":id")}}';
-                        routeuser = routeuser.replace(':id', val.payoutuser.vendorID);
-                    }
+                    // For vendors, link directly to user_id for now
+                    routeuser = '{{route("users.view",":id")}}';
+                    routeuser = routeuser.replace(':id', val.user_id);
                 }
 
                 html.push('<a href="' + routeuser + '">' + user_name + '</a>');
@@ -509,16 +435,8 @@
                 html.push('<span class="">' + currentCurrency + '' + parseFloat(amount).toFixed(decimal_degits) + '</span>');
             }
         }
-        var date = "";
-        var time = "";
-        try {
-            if (val.hasOwnProperty("date")) {
-                date = val.date.toDate().toDateString();
-                time = val.date.toDate().toLocaleTimeString('en-US');
-            }
-        } catch (err) {
-        }
-        html.push(date + ' ' + time);
+        // Use formatted date from backend
+        html.push(val.formattedDate || '');
         if (val.note != undefined && val.note != '' && val.note != null) {
             html.push(val.note);
         } else {
@@ -586,17 +504,6 @@
             html.push('<span class="refund_success"><span>' + val.payment_status + '</span></span>');
         }
         return html;
-    }
-    async function payoutuserfunction(user) {
-        var payoutuser = '';
-        if(user && user != '' && user != null && user != undefined){
-        await database.collection('users').where("id", "==", user).get().then(async function (snapshotss) {
-            if (snapshotss.docs[0]) {
-                payoutuser = snapshotss.docs[0].data();
-            }
-        });
-        }
-        return payoutuser;
     }
     $("#is_active").click(function () {
         $("#walletTransactionTable .is_open").prop('checked', $(this).prop('checked'));

@@ -79,7 +79,7 @@
 @endsection
 @section('scripts')
 <script type="text/javascript">
-    var database = firebase.firestore();
+    // SQL mode - no Firebase
     var offest = 1;
     var pagesize = 10;
     var end = null;
@@ -87,8 +87,7 @@
     var start = null;
     var user_number = [];
     var languages = [];
-    var ref = database.collection('settings').doc('languages');
-    var placeholderImage = '{{ asset('assets/images/placeholder-image.png') }}';
+    var placeholderImage = '{{ asset('images/placeholder.png') }}';
     var append_list = '';
     var user_permissions = '<?php echo @session("user_permissions")?>';
     user_permissions = Object.values(JSON.parse(user_permissions));
@@ -105,13 +104,13 @@
         jQuery("#data-table_processing").show();
         append_list = document.getElementById('append_list1');
         append_list.innerHTML = '';
-        ref.get().then(async function (snapshots) {
+
+        // Load languages from SQL
+        $.get("{{ route('api.languages.settings') }}", async function(response) {
             html = '';
-            snapshots = snapshots.data();
-            if (snapshots) {
-                snapshots = snapshots.list;
-                languages = snapshots;
-                html = await buildHTML(snapshots);
+            if (response.success && response.list) {
+                languages = response.list;
+                html = await buildHTML(response.list);
                 if (html != '') {
                     append_list.innerHTML = html;
                 }
@@ -198,40 +197,63 @@
         var error = 0;
         var languageTitle = '';
 
-        ref.get().then(async function (snapshots) {
-            snapshots = snapshots.data();
-            snapshots = snapshots.list;
-            if (snapshots.length) {
-                languages = snapshots;
+        // Use already loaded languages array (no Firebase fetch needed)
+        for (var key in languages) {
+            if (languages[key]['slug'] == id) {
+                language_key = key;
+                languageTitle = languages[key]['title'];
             }
-            for (var key in snapshots) {
-                if (snapshots[key]['slug'] == id) {
-                    language_key = key;
-                    languageTitle = snapshots[key]['title'];
-                }
-                if (snapshots[key]['isActive'] != true) {
-                    error++;
-                }
+            if (languages[key]['isActive'] != true) {
+                error++;
             }
-            if (ischeck) {
-                languages[language_key]['isActive'] = true;
-                database.collection('settings').doc('languages').update({'list': languages}).then(async function (result) {
-                    // Log the activity
-                    await logActivity('languages', 'enabled', 'Enabled language: ' + languageTitle);
-                });
-            } else {
-                if (error > 0) {
-                    alert("{{trans('lang.lang_error')}}");
-                    $("#" + id).prop('checked', true);
-                    return false;
+        }
+
+        if (ischeck) {
+            languages[language_key]['isActive'] = true;
+            console.log('📤 Sending to SQL:', {list: languages});
+            $.ajax({
+                url: "{{ route('api.languages.update') }}",
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                data: {
+                    list: languages
+                },
+                success: function(result) {
+                    console.log('✅ Language enabled:', languageTitle, result);
+                },
+                error: function(xhr) {
+                    console.error('❌ Error enabling language:', xhr);
+                    alert('Error updating language status');
                 }
-                languages[language_key]['isActive'] = false;
-                database.collection('settings').doc('languages').update({'list': languages}).then(async function (result) {
-                    // Log the activity
-                    await logActivity('languages', 'disabled', 'Disabled language: ' + languageTitle);
-                });
+            });
+        } else {
+            if (error > 0) {
+                alert("{{trans('lang.lang_error')}}");
+                $("#" + id).prop('checked', true);
+                return false;
             }
-        });
+            languages[language_key]['isActive'] = false;
+            console.log('📤 Sending to SQL:', {list: languages});
+            $.ajax({
+                url: "{{ route('api.languages.update') }}",
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                data: {
+                    list: languages
+                },
+                success: function(result) {
+                    console.log('✅ Language disabled:', languageTitle, result);
+                },
+                error: function(xhr) {
+                    console.error('❌ Error disabling language:', xhr);
+                    alert('Error updating language status');
+                }
+            });
+        }
     });
     $(document).on("click", "a[name='lang-delete']", function (e) {
         var id = this.id;
@@ -252,11 +274,24 @@
         });
 
         jQuery("#data-table_processing").show();
-        database.collection('settings').doc('languages').update({'list': newlanguage}).then(async function (result) {
-            jQuery("#data-table_processing").hide();
-            // Log the activity
-            await logActivity('languages', 'deleted', 'Deleted language: ' + languageTitle);
-            window.location.href = '{{ route("settings.app.languages") }}';
+        $.ajax({
+            url: "{{ route('api.languages.update') }}",
+            method: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+            },
+            data: {
+                list: newlanguage
+            },
+            success: function(result) {
+                jQuery("#data-table_processing").hide();
+                window.location.href = '{{ route("settings.app.languages") }}';
+            },
+            error: function(xhr) {
+                jQuery("#data-table_processing").hide();
+                console.error('Error deleting language:', xhr);
+                alert('Error deleting language');
+            }
         });
     });
     $("#is_active").click(function () {
@@ -291,11 +326,24 @@
                     }
                 });
 
-                database.collection('settings').doc('languages').update({'list': newlanguage}).then(async function (result) {
-                    jQuery("#data-table_processing").hide();
-                    // Log the activity
-                    await logActivity('languages', 'deleted', 'Bulk deleted languages: ' + selectedTitles.join(', '));
-                    window.location.href = '{{ route("settings.app.languages") }}';
+                $.ajax({
+                    url: "{{ route('api.languages.update') }}",
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                    },
+                    data: {
+                        list: newlanguage
+                    },
+                    success: function(result) {
+                        jQuery("#data-table_processing").hide();
+                        window.location.href = '{{ route("settings.app.languages") }}';
+                    },
+                    error: function(xhr) {
+                        jQuery("#data-table_processing").hide();
+                        console.error('Error bulk deleting languages:', xhr);
+                        alert('Error deleting languages');
+                    }
                 });
             }
         } else {

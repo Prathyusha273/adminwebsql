@@ -166,7 +166,7 @@
 @section('scripts')
 <script type="text/javascript">
     var categoryId = "{{ $categoryId }}";
-    var placeholderImage = '{{ asset("assets/images/placeholder-image.png") }}';
+    var placeholderImage = '{{ asset("images/placeholder.png") }}';
     var user_permissions = '<?php echo @session("user_permissions")?>';
     user_permissions = Object.values(JSON.parse(user_permissions));
     var checkDeletePermission = false;

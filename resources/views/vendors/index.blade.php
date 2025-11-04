@@ -203,7 +203,7 @@
     var zoneIdToName = {};
 
     // Load placeholder image from SQL
-    placeholderImage = '{{ asset('assets/images/placeholder-image.png') }}';
+    placeholderImage = '{{ asset('images/placeholder.png') }}';
 
     // Load zones from SQL
     console.log('🌍 Loading zones from SQL...');

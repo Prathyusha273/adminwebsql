@@ -181,7 +181,7 @@
 <script>
     var id = "<?php echo $id; ?>";
     var photo = "";
-    var placeholderImage = '{{ asset('assets/images/placeholder-image.png') }}';
+    var placeholderImage = '{{ asset('images/placeholder.png') }}';
     var currentCurrency = '';
     var currencyAtRight = false;
     var decimal_degits = 0;

@@ -444,7 +444,7 @@
         var append_procucts_list = '';
         var append_procucts_total = '';
         var total_price = 0;
-        var place_image = '{{ asset("assets/images/placeholder-image.png") }}';
+        var place_image = '{{ asset("images/placeholder.png") }}';
 
         // Provide no-op stubs when Firebase is not available (MySQL build)
         if (typeof window.database === 'undefined') {
