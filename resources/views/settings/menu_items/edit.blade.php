@@ -99,13 +99,11 @@
             </div>
         </div>
     </div>
-    <div class="form-group col-12 text-center btm-btn">
-        <button type="button" class="btn btn-primary edit-setting-btn">
-            <i class="fa fa-save"></i> {{trans('lang.save')}}
-        </button>
-        <a href="{!! route('setting.banners') !!}" class="btn btn-default">
-            <i class="fa fa-undo"></i> {{trans('lang.cancel')}}
-        </a>
+    <div class="form-group col-12 text-center">
+        <?php if (in_array('banners.edit', json_decode(@session('user_permissions'), true))) { ?>
+        <button type="button" class="btn btn-primary  edit-setting-btn"><i class="fa fa-save"></i> {{trans('lang.save')}}</button>
+        <?php } ?>
+        <a href="{!! route('setting.banners') !!}" class="btn btn-default"><i class="fa fa-undo"></i>{{trans('lang.cancel')}}</a>
     </div>
 </div>
 @endsection
