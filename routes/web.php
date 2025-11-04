@@ -273,13 +273,13 @@ Route::middleware(['permission:orders,orders.edit'])->group(function () {
 
 });
 
-// Catering Requests Routes
-Route::middleware(['permission:catering,catering'])->group(function () {
-    Route::get('/catering', [App\Http\Controllers\CateringController::class, 'index'])->name('catering');
-});
-Route::middleware(['permission:catering,catering.edit'])->group(function () {
-    Route::get('/catering/edit/{id}', [App\Http\Controllers\CateringController::class, 'edit'])->name('catering.edit');
-});
+//// Catering Requests Routes
+//Route::middleware(['permission:catering,catering'])->group(function () {
+//    Route::get('/catering', [App\Http\Controllers\CateringController::class, 'index'])->name('catering');
+//});
+//Route::middleware(['permission:catering,catering.edit'])->group(function () {
+//    Route::get('/catering/edit/{id}', [App\Http\Controllers\CateringController::class, 'edit'])->name('catering.edit');
+//});
 Route::middleware(['permission:orders,vendors.orderprint'])->group(function () {
     Route::get('/orders/print/{id}', [App\Http\Controllers\OrderController::class, 'orderprint'])->name('vendors.orderprint');
 
@@ -384,15 +384,27 @@ Route::middleware(['permission:cuisines,cuisines.delete'])->group(function () {
 
 Route::middleware(['permission:promotions,promotions'])->group(function () {
     Route::get('/promotions', [App\Http\Controllers\PromotionController::class, 'index'])->name('promotions');
+    // Data API for DataTables and dropdowns (ActivityLogs-style server-side)
+    Route::get('/promotions/data', [App\Http\Controllers\PromotionController::class, 'getData'])->name('promotions.data');
+    Route::get('/promotions/zones', [App\Http\Controllers\PromotionController::class, 'getZones'])->name('promotions.zones');
+    Route::get('/promotions/vendors', [App\Http\Controllers\PromotionController::class, 'getVendors'])->name('promotions.vendors');
+    Route::get('/promotions/products', [App\Http\Controllers\PromotionController::class, 'getProducts'])->name('promotions.products');
+    Route::get('/promotions/show/{id}', [App\Http\Controllers\PromotionController::class, 'show'])->name('promotions.show');
+    // Toggle under base permission like ActivityLogs pattern
+    Route::post('/promotions/toggle/{id}', [App\Http\Controllers\PromotionController::class, 'toggleAvailability'])->name('promotions.toggle');
 });
 Route::middleware(['permission:promotions,promotions.edit'])->group(function () {
     Route::get('/promotions/edit/{id}', [App\Http\Controllers\PromotionController::class, 'edit'])->name('promotions.edit');
+    Route::put('/promotions/update/{id}', [App\Http\Controllers\PromotionController::class, 'update'])->name('promotions.update');
 });
 Route::middleware(['permission:promotions,promotions.create'])->group(function () {
     Route::get('/promotions/create', [App\Http\Controllers\PromotionController::class, 'create'])->name('promotions.create');
+    Route::post('/promotions/store', [App\Http\Controllers\PromotionController::class, 'store'])->name('promotions.store');
 });
 Route::middleware(['permission:promotions,promotions.delete'])->group(function () {
     Route::get('/promotions/delete/{id}', [App\Http\Controllers\PromotionController::class, 'delete'])->name('promotions.delete');
+    Route::delete('/promotions/{id}', [App\Http\Controllers\PromotionController::class, 'destroy'])->name('promotions.destroy');
+    Route::post('/promotions/bulk-delete', [App\Http\Controllers\PromotionController::class, 'bulkDelete'])->name('promotions.bulk-delete');
 });
 
 Route::middleware(['permission:menu-periods,menu-periods'])->group(function () {
@@ -738,20 +750,31 @@ Route::get('payment/success', [App\Http\Controllers\PaymentController::class, 'p
 Route::get('payment/failed', [App\Http\Controllers\PaymentController::class, 'paymentfailed'])->name('payment.failed');
 Route::get('payment/pending', [App\Http\Controllers\PaymentController::class, 'paymentpending'])->name('payment.pending');
 
+//Banner Routes
 Route::middleware(['permission:banners,setting.banners'])->group(function () {
-    Route::get('/banners', [App\Http\Controllers\SettingsController::class, 'menuItems'])->name('setting.banners');
+    Route::get('/banners', [App\Http\Controllers\MenuItemController::class, 'index'])->name('setting.banners');
+    Route::get('/banners/data', [App\Http\Controllers\MenuItemController::class, 'data'])->name('menu-items.data');
+    Route::get('/banners/json/{id}', [App\Http\Controllers\MenuItemController::class, 'json'])->name('setting.banners.json');
 });
 Route::middleware(['permission:banners,setting.banners.create'])->group(function () {
-    Route::get('/banners/create', [App\Http\Controllers\SettingsController::class, 'menuItemsCreate'])->name('setting.banners.create');
-
+    Route::get('/banners/create', [App\Http\Controllers\MenuItemController::class, 'create'])->name('setting.banners.create');
+    Route::post('/banners', [App\Http\Controllers\MenuItemController::class, 'store'])->name('setting.banners.store');
 });
 Route::middleware(['permission:banners,setting.banners.edit'])->group(function () {
-    Route::get('/banners/edit/{id}', [App\Http\Controllers\SettingsController::class, 'menuItemsEdit'])->name('setting.banners.edit');
+    Route::get('/banners/edit/{id}', [App\Http\Controllers\MenuItemController::class, 'edit'])->name('setting.banners.edit');
+    Route::post('/banners/{id}', [App\Http\Controllers\MenuItemController::class, 'update'])->name('setting.banners.update');
+    Route::post('/banners/{id}/toggle', [App\Http\Controllers\MenuItemController::class, 'togglePublish'])->name('setting.banners.toggle');
+});
+Route::middleware(['permission:banners,setting.banners.delete'])->group(function () {
+    Route::delete('/banners/{id}', [App\Http\Controllers\MenuItemController::class, 'destroy'])->name('menu-items.destroy');
+    Route::delete('/banners/', [App\Http\Controllers\MenuItemController::class, 'bulkDelete'])->name('menu-items.bulkDelete');
 });
 
 // Mart Banner Items Routes
 Route::middleware(['permission:mart_banners,mart_banners'])->group(function () {
     Route::get('/mart-banners', [App\Http\Controllers\MartBannerController::class, 'index'])->name('mart.banners');
+    Route::get('/mart-banners/data', [App\Http\Controllers\MartBannerController::class, 'data'])->name('mart.banners.data');
+    Route::get('/mart-banners/json/{id}', [App\Http\Controllers\MartBannerController::class, 'json'])->name('mart.banners.json');
 });
 
 Route::middleware(['permission:mart_banners,mart_banners.create'])->group(function () {
@@ -767,7 +790,9 @@ Route::middleware(['permission:mart_banners,mart_banners.edit'])->group(function
 
 Route::middleware(['permission:mart_banners,mart_banners.delete'])->group(function () {
     Route::delete('/mart-banners/{id}', [App\Http\Controllers\MartBannerController::class, 'destroy'])->name('mart.banners.destroy');
+    Route::delete('/mart-banners/', [App\Http\Controllers\MartBannerController::class, 'bulkDelete'])->name('mart.banners.bulkDelete');
 });
+
 Route::middleware(['permission:item-attribute,attributes'])->group(function () {
     Route::get('/attributes', [App\Http\Controllers\AttributeController::class, 'index'])->name('attributes');
 });
@@ -799,12 +824,21 @@ Route::middleware(['permission:home-page,homepageTemplate'])->group(function () 
 });
 Route::middleware(['permission:cms,cms'])->group(function () {
     Route::get('cms', [App\Http\Controllers\CmsController::class, 'index'])->name('cms');
+    Route::get('/cms/data', [App\Http\Controllers\CmsController::class, 'data'])->name('cms.data');
+    Route::get('/cms/json/{id}', [App\Http\Controllers\CmsController::class, 'json'])->name('cms.json');
 });
 Route::middleware(['permission:cms,cms.edit'])->group(function () {
     Route::get('/cms/edit/{id}', [App\Http\Controllers\CmsController::class, 'edit'])->name('cms.edit');
+    Route::post('/cms/{id}', [App\Http\Controllers\CmsController::class, 'update'])->name('cms.update');
+    Route::post('/cms/{id}/toggle', [App\Http\Controllers\CmsController::class, 'toggle'])->name('cms.toggle');
 });
 Route::middleware(['permission:cms,cms.create'])->group(function () {
     Route::get('/cms/create', [App\Http\Controllers\CmsController::class, 'create'])->name('cms.create');
+    Route::post('/cms', [App\Http\Controllers\CmsController::class, 'store'])->name('cms.store');
+});
+Route::middleware(['permission:cms,cms.delete'])->group(function () {
+    Route::post('/cms/{id}/delete', [App\Http\Controllers\CmsController::class, 'destroy'])->name('cms.delete.post');
+    Route::post('/cms/bulk-delete', [App\Http\Controllers\CmsController::class, 'bulkDelete'])->name('cms.bulkDelete');
 });
 Route::middleware(['permission:reports,report.index'])->group(function () {
     Route::get('report/{type}', [App\Http\Controllers\ReportController::class, 'index'])->name('report.index');
@@ -832,13 +866,17 @@ Route::middleware(['permission:tax,tax.create'])->group(function () {
 
 Route::middleware(['permission:email-template,email-templates.index'])->group(function () {
     Route::get('email-templates', [App\Http\Controllers\SettingsController::class, 'emailTemplatesIndex'])->name('email-templates.index');
+    Route::get('email-templates/data', [App\Http\Controllers\SettingsController::class, 'emailTemplatesData'])->name('email-templates.data');
+    Route::get('email-templates/json/{id}', [App\Http\Controllers\SettingsController::class, 'emailTemplatesJson'])->name('email-templates.json');
 });
 Route::middleware(['permission:email-template,email-templates.edit'])->group(function () {
     Route::get('email-templates/save/{id?}', [App\Http\Controllers\SettingsController::class, 'emailTemplatesSave'])->name('email-templates.save');
+    Route::post('email-templates/{id}', [App\Http\Controllers\SettingsController::class, 'emailTemplatesUpdate'])->name('email-templates.update');
 
 });
 Route::middleware(['permission:email-template,email-templates.delete'])->group(function () {
     Route::get('email-templates/delete/{id}', [App\Http\Controllers\SettingsController::class, 'emailTemplatesDelete'])->name('email-templates.delete');
+    Route::post('email-templates/{id}/delete', [App\Http\Controllers\SettingsController::class, 'emailTemplatesDelete'])->name('email-templates.delete.post');
 
 });
 Route::post('send-email', [App\Http\Controllers\SendEmailController::class, 'sendMail'])->name('sendMail');
@@ -970,9 +1008,12 @@ Route::post('check-payout-status', [App\Http\Controllers\UserController::class, 
 
 Route::middleware(['permission:on-board,onboard.list'])->group(function () {
     Route::get('/on-board', [App\Http\Controllers\OnBoardController::class, 'index'])->name('on-board');
+    Route::get('/on-board/data', [App\Http\Controllers\OnBoardController::class, 'data'])->name('on-board.data');
+    Route::get('/on-board/json/{id}', [App\Http\Controllers\OnBoardController::class, 'json'])->name('on-board.json');
 });
 Route::middleware(['permission:on-board,onboard.edit'])->group(function () {
     Route::get('/on-board/save/{id}', [App\Http\Controllers\OnBoardController::class, 'show'])->name('on-board.save');
+    Route::post('/on-board/{id}', [App\Http\Controllers\OnBoardController::class, 'update'])->name('on-board.update');
 });
 Route::middleware(['permission:subscription-plans,subscription-plans'])->group(function () {
     Route::get('/subscription-plans', [App\Http\Controllers\SubscriptionPlanController::class, 'index'])->name('subscription-plans.index');
@@ -995,15 +1036,21 @@ Route::get('/restaurantFilters/edit/{id}', [App\Http\Controllers\RestaurantFilte
 
 Route::middleware(['permission:media,media'])->group(function () {
     Route::get('/media', [App\Http\Controllers\MediaController::class, 'index'])->name('media.index');
+    Route::get('/media/data', [App\Http\Controllers\MediaController::class, 'data'])->name('media.data');
 });
 Route::middleware(['permission:media,media.edit'])->group(function () {
     Route::get('/media/edit/{id}', [App\Http\Controllers\MediaController::class, 'edit'])->name('media.edit');
+    Route::get('/media/json/{id}', [App\Http\Controllers\MediaController::class, 'json'])->name('media.json');
+    Route::post('/media/{id}', [App\Http\Controllers\MediaController::class, 'update'])->name('media.update');
 });
 Route::middleware(['permission:media,media.create'])->group(function () {
     Route::get('/media/create', [App\Http\Controllers\MediaController::class, 'create'])->name('media.create');
+    Route::post('/media', [App\Http\Controllers\MediaController::class, 'store'])->name('media.store');
 });
 Route::middleware(['permission:media,media.delete'])->group(function () {
     Route::get('/media/delete/{id}', [App\Http\Controllers\MediaController::class, 'delete'])->name('media.delete');
+    Route::post('/media/{id}/delete', [App\Http\Controllers\MediaController::class, 'destroy'])->name('media.delete.post');
+    Route::post('/media/bulk-delete', [App\Http\Controllers\MediaController::class, 'bulkDelete'])->name('media.bulkDelete');
 });
 
 
@@ -1227,63 +1274,6 @@ Route::get('payment/failed', [App\Http\Controllers\PaymentController::class, 'pa
 
 Route::get('payment/pending', [App\Http\Controllers\PaymentController::class, 'paymentpending'])->name('payment.pending');
 
-
-Route::middleware(['permission:banners,setting.banners'])->group(function () {
-
-    Route::get('/banners', [App\Http\Controllers\SettingsController::class, 'menuItems'])->name('setting.banners');
-
-});
-
-Route::middleware(['permission:banners,setting.banners.create'])->group(function () {
-
-    Route::get('/banners/create', [App\Http\Controllers\SettingsController::class, 'menuItemsCreate'])->name('setting.banners.create');
-
-
-});
-
-Route::middleware(['permission:banners,setting.banners.edit'])->group(function () {
-
-    Route::get('/banners/edit/{id}', [App\Http\Controllers\SettingsController::class, 'menuItemsEdit'])->name('setting.banners.edit');
-});
-
-// Mart Banner Items Routes
-Route::middleware(['permission:mart_banners,mart_banners'])->group(function () {
-    Route::get('/mart-banners', [App\Http\Controllers\MartBannerController::class, 'index'])->name('mart.banners');
-});
-
-Route::middleware(['permission:mart_banners,mart_banners.create'])->group(function () {
-    Route::get('/mart-banners/create', [App\Http\Controllers\MartBannerController::class, 'create'])->name('mart.banners.create');
-    Route::post('/mart-banners', [App\Http\Controllers\MartBannerController::class, 'store'])->name('mart.banners.store');
-});
-
-Route::middleware(['permission:mart_banners,mart_banners.edit'])->group(function () {
-    Route::get('/mart-banners/edit/{id}', [App\Http\Controllers\MartBannerController::class, 'edit'])->name('mart.banners.edit');
-    Route::put('/mart-banners/{id}', [App\Http\Controllers\MartBannerController::class, 'update'])->name('mart.banners.update');
-    Route::post('/mart-banners/{id}/toggle-publish', [App\Http\Controllers\MartBannerController::class, 'togglePublish'])->name('mart.banners.togglePublish');
-});
-
-Route::middleware(['permission:mart_banners,mart_banners.delete'])->group(function () {
-    Route::delete('/mart-banners/{id}', [App\Http\Controllers\MartBannerController::class, 'destroy'])->name('mart.banners.destroy');
-});
-Route::middleware(['permission:item-attribute,attributes'])->group(function () {
-    Route::get('/attributes', [App\Http\Controllers\AttributeController::class, 'index'])->name('attributes');
-});
-Route::middleware(['permission:item-attribute,attributes.edit'])->group(function () {
-    Route::get('/attributes/edit/{id}', [App\Http\Controllers\AttributeController::class, 'edit'])->name('attributes.edit');
-});
-Route::middleware(['permission:item-attribute,attributes.create'])->group(function () {
-    Route::get('/attributes/create', [App\Http\Controllers\AttributeController::class, 'create'])->name('attributes.create');
-});
-
-Route::middleware(['permission:review-attribute,reviewattributes'])->group(function () {
-    Route::get('/reviewattributes', [App\Http\Controllers\ReviewAttributeController::class, 'index'])->name('reviewattributes');
-});
-Route::middleware(['permission:review-attribute,reviewattributes.edit'])->group(function () {
-    Route::get('/reviewattributes/edit/{id}', [App\Http\Controllers\ReviewAttributeController::class, 'edit'])->name('reviewattributes.edit');
-});
-Route::middleware(['permission:review-attribute,reviewattributes.create'])->group(function () {
-    Route::get('/reviewattributes/create', [App\Http\Controllers\ReviewAttributeController::class, 'create'])->name('reviewattributes.create');
-});
 
 // Review Attributes API Route
 Route::get('/api/review-attributes', [App\Http\Controllers\ReviewAttributeController::class, 'getAll'])->name('api.review-attributes.get-all');
