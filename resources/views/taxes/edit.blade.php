@@ -101,58 +101,98 @@
 @section('scripts')
     <script>
         var id = "<?php echo $id;?>";
-        var database = firebase.firestore();
-        var ref = database.collection('tax').where("id", "==", id);
-        var append_list = '';
+
         $(document).ready(function () {
             $('.tax_menu').addClass('active');
             jQuery("#data-table_processing").show();
-            ref.get().then(async function (snapshots) {
-                var data = snapshots.docs[0].data();
-                $(".tax_title").val(data.title);
-                $(".tax_type").val(data.type);
-                $(".tax_country").val(data.country);
-                $('.tax_amount').val(data.tax);
-                if (data.enable) {
-                    $('.tax_active').prop('checked', true);
+
+            // Fetch tax data from MySQL
+            $.ajax({
+                url: '{{ url('tax/get') }}/' + id,
+                method: 'GET',
+                success: function(response) {
+                    if (response.success) {
+                        var data = response.data;
+                        $(".tax_title").val(data.title);
+                        $(".tax_type").val(data.type);
+                        $(".tax_country").val(data.country);
+                        $('.tax_amount').val(data.tax);
+                        if (data.enable) {
+                            $('.tax_active').prop('checked', true);
+                        }
+                    } else {
+                        alert('Error loading tax data: ' + response.message);
+                    }
+                    jQuery("#data-table_processing").hide();
+                },
+                error: function(xhr, status, error) {
+                    alert('Error loading tax data: ' + error);
+                    jQuery("#data-table_processing").hide();
                 }
-                jQuery("#data-table_processing").hide();
             });
+
+            // Save changes to MySQL
             $(".edit-setting-btn").click(function () {
                 var title = $(".tax_title").val();
                 var country = $(".tax_country").val();
                 var type = $(".tax_type :selected").val();
                 var tax = $(".tax_amount").val();
-                var enable = false;
-                if ($(".tax_active").is(':checked')) {
-                    enable = true;
-                }
+                var enable = $(".tax_active").is(':checked') ? 1 : 0;
+
+                // Validation
                 if (title == '') {
                     $(".error_top").show();
                     $(".error_top").html("");
                     $(".error_top").append("<p>{{trans('lang.tax_title_error')}}</p>");
                     window.scrollTo(0, 0);
+                    return;
                 } else if (tax == '' || tax <= 0) {
                     $(".error_top").show();
                     $(".error_top").html("");
                     $(".error_top").append("<p>{{trans('lang.tax_amount_error')}}</p>");
                     window.scrollTo(0, 0);
-                } else {
-                    jQuery("#overlay").show();
-                    database.collection('tax').doc(id).update({
-                        'title': title,
-                        'country': country,
-                        'tax': tax,
-                        'type': type,
-                        'enable': enable,
-                    }).then(async function (result) {
-                        // Log the activity
-                        await logActivity('tax_settings', 'updated', 'Updated tax: ' + title + ' (' + country + ') - Type: ' + type + ', Amount: ' + tax + ', Enabled: ' + (enable ? 'Yes' : 'No'));
-                        jQuery("#overlay").hide();
-                        window.location.href = '{{ route("tax")}}';
-                    });
+                    return;
                 }
-            })
-        })
+
+                // Update in MySQL
+                jQuery("#overlay").show();
+                $.ajax({
+                    url: '{{ url('tax') }}/' + id + '/update',
+                    method: 'POST',
+                    data: {
+                        _token: '{{ csrf_token() }}',
+                        title: title,
+                        country: country,
+                        tax: tax,
+                        type: type,
+                        enable: enable
+                    },
+                    success: function(response) {
+                        jQuery("#overlay").hide();
+                        if (response.success) {
+                            // Log the activity (don't wait for it)
+                            if (typeof logActivity === 'function') {
+                                logActivity('tax_settings', 'updated', 'Updated tax: ' + title + ' (' + country + ') - Type: ' + type + ', Amount: ' + tax + ', Enabled: ' + (enable ? 'Yes' : 'No')).catch(function(e) {
+                                    console.log('Activity logging failed:', e);
+                                });
+                            }
+                            // Redirect immediately
+                            alert('Tax updated successfully!');
+                            window.location.href = '{{ route("tax") }}';
+                        } else {
+                            $(".error_top").show();
+                            $(".error_top").html("");
+                            $(".error_top").append("<p>" + response.message + "</p>");
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        jQuery("#overlay").hide();
+                        $(".error_top").show();
+                        $(".error_top").html("");
+                        $(".error_top").append("<p>Error: " + (xhr.responseJSON?.message || error) + "</p>");
+                    }
+                });
+            });
+        });
     </script>
 @endsection

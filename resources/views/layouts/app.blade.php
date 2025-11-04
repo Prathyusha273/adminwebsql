@@ -48,334 +48,51 @@
     <!-- Global Activity Logger - Load after jQuery -->
     <script src="{{ asset('js/global-activity-logger.js') }}"></script>
 
-    <!-- SQL Settings Loader - Pure SQL implementation -->
-    <script src="{{ asset('js/settings-loader.js') }}"></script>
+    <!--
+    ========================================
+    FIREBASE COMPLETELY DISABLED
+    ========================================
+    All Firebase code has been commented out.
+    The application now uses MySQL exclusively.
+    ========================================
+    -->
 
-    <!-- API Utility Library for SQL Database -->
+    <!--
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-storage-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
+
     <script>
-        // Global API utility for database operations (replacing Firebase)
-        window.DB = {
-            baseUrl: '{{ url('/api') }}',
-
-            // Helper to make API calls
-            async call(endpoint, method = 'GET', data = null) {
-                const options = {
-                    method: method,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
-                        'Accept': 'application/json'
-                    }
-                };
-
-                if (data && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
-                    options.body = JSON.stringify(data);
-                }
-
-                try {
-                    const response = await fetch(this.baseUrl + endpoint, options);
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return await response.json();
-                } catch (error) {
-                    console.error('API Error:', error);
-                    throw error;
-                }
-            },
-
-            // CRUD operations
-            async get(endpoint) {
-                return this.call(endpoint, 'GET');
-            },
-
-            async post(endpoint, data) {
-                return this.call(endpoint, 'POST', data);
-            },
-
-            async put(endpoint, data) {
-                return this.call(endpoint, 'PUT', data);
-            },
-
-            async delete(endpoint) {
-                return this.call(endpoint, 'DELETE');
-            },
-
-            // Common queries
-            async getSettings(key) {
-                return this.get(`/settings/${key}`);
-            },
-
-            async getCurrency() {
-                return this.get('/currency');
-            },
-
-            async getZones() {
-                return this.get('/zones');
-            }
+        const firebaseConfig = {
+            apiKey: "{{ env('FIREBASE_APIKEY', 'AIzaSyAf_lICoxPh8qKE1QnVkmQYTFJXKkYmRXU') }}",
+            authDomain: "{{ env('FIREBASE_AUTH_DOMAIN', 'jippymart-27c08.firebaseapp.com') }}",
+            databaseURL: "{{ env('FIREBASE_DATABASE_URL', 'https://jippymart-27c08-default-rtdb.firebaseio.com') }}",
+            projectId: "{{ env('FIREBASE_PROJECT_ID', 'jippymart-27c08') }}",
+            storageBucket: "{{ env('FIREBASE_STORAGE_BUCKET', 'jippymart-27c08.firebasestorage.app') }}",
+            messagingSenderId: "{{ env('FIREBASE_MESSAAGING_SENDER_ID', '592427852800') }}",
+            appId: "{{ env('FIREBASE_APP_ID', '1:592427852800:web:f74df8ceb2a4b597d1a4e5') }}",
+            measurementId: "{{ env('FIREBASE_MEASUREMENT_ID', 'G-ZYBQYPZWCF') }}"
         };
 
-        console.log('✅ SQL Database API initialized');
-
-        // Global Date Formatting Utility
-        function normalizeIso(dateString){
-            if(typeof dateString !== 'string') return dateString;
-            // Trim microseconds to milliseconds: 2025-10-06T07:24:51.041000Z -> 2025-10-06T07:24:51.041Z
-            // Handles .xxxxxxZ or .xxxxxxxxxZ variants
-            dateString = dateString.replace(/\.(\d{3})\d*Z$/, '.$1Z');
-            // MySQL DATETIME without timezone
-            // Convert "YYYY-MM-DD HH:MM:SS" to ISO by adding 'T' and 'Z'
-            if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dateString)) {
-                dateString = dateString.replace(' ', 'T') + 'Z';
+        if (!firebase.apps.length) {
+            try {
+                firebase.initializeApp(firebaseConfig);
+                console.log('✅ Firebase initialized successfully');
+                window.database = firebase.firestore();
+                window.storage = firebase.storage();
+                console.log('✅ Firebase services initialized (Auth disabled temporarily)');
+            } catch (error) {
+                console.error('❌ Firebase initialization error:', error);
             }
-            return dateString;
+        } else {
+            console.log('✅ Firebase already initialized');
+            window.database = firebase.firestore();
+            window.storage = firebase.storage();
         }
-        window.formatDate = function(dateString, format = 'datetime') {
-            if (!dateString) return '-';
-
-            try {
-                const date = new Date(normalizeIso(dateString));
-
-                // Check if valid date
-                if (isNaN(date.getTime())) return dateString;
-
-                const options = {
-                    date: { year: 'numeric', month: 'short', day: 'numeric' },
-                    datetime: {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    },
-                    time: { hour: '2-digit', minute: '2-digit' },
-                    short: { month: 'short', day: 'numeric' },
-                    long: {
-                        weekday: 'long',
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    }
-                };
-
-                return date.toLocaleString('en-US', options[format] || options.datetime);
-            } catch (error) {
-                console.error('Date formatting error:', error);
-                return dateString;
-            }
-        };
-
-        // Format as: Oct 06, 2025 07:24 AM
-        window.formatDateTime = function(dateString) {
-            if (!dateString) return '-';
-
-            try {
-                const date = new Date(normalizeIso(dateString));
-                if (isNaN(date.getTime())) return dateString;
-
-                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                const month = months[date.getMonth()];
-                const day = String(date.getDate()).padStart(2, '0');
-                const year = date.getFullYear();
-
-                let hours = date.getHours();
-                const ampm = hours >= 12 ? 'PM' : 'AM';
-                hours = hours % 12;
-                hours = hours ? hours : 12; // 0 should be 12
-                const hoursStr = String(hours).padStart(2, '0');
-                const minutes = String(date.getMinutes()).padStart(2, '0');
-
-                return `${month} ${day}, ${year} ${hoursStr}:${minutes} ${ampm}`;
-            } catch (error) {
-                return dateString;
-            }
-        };
-
-        // Format as date only: DD/MM/YYYY
-        window.formatDateOnly = function(dateString) {
-            if (!dateString) return '-';
-
-            try {
-                const date = new Date(normalizeIso(dateString));
-                if (isNaN(date.getTime())) return dateString;
-
-                const day = String(date.getDate()).padStart(2, '0');
-                const month = String(date.getMonth() + 1).padStart(2, '0');
-                const year = date.getFullYear();
-
-                return `${day}/${month}/${year}`;
-            } catch (error) {
-                return dateString;
-            }
-        };
-
-        // Format as time only: HH:MM
-        window.formatTimeOnly = function(dateString) {
-            if (!dateString) return '-';
-
-            try {
-                const date = new Date(normalizeIso(dateString));
-                if (isNaN(date.getTime())) return dateString;
-
-                const hours = String(date.getHours()).padStart(2, '0');
-                const minutes = String(date.getMinutes()).padStart(2, '0');
-
-                return `${hours}:${minutes}`;
-            } catch (error) {
-                return dateString;
-            }
-        };
-
-        // Relative time (e.g., "2 hours ago")
-        window.formatRelativeTime = function(dateString) {
-            if (!dateString) return '-';
-
-            try {
-                const date = new Date(normalizeIso(dateString));
-                if (isNaN(date.getTime())) return dateString;
-
-                const now = new Date();
-                const diffMs = now - date;
-                const diffSecs = Math.floor(diffMs / 1000);
-                const diffMins = Math.floor(diffSecs / 60);
-                const diffHours = Math.floor(diffMins / 60);
-                const diffDays = Math.floor(diffHours / 24);
-
-                if (diffSecs < 60) return 'Just now';
-                if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
-                if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-                if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-                if (diffDays < 30) return `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? 's' : ''} ago`;
-                if (diffDays < 365) return `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? 's' : ''} ago`;
-                return `${Math.floor(diffDays / 365)} year${Math.floor(diffDays / 365) > 1 ? 's' : ''} ago`;
-            } catch (error) {
-                return dateString;
-            }
-        };
-
-        console.log('✅ Date formatting utilities loaded');
     </script>
-
-    <!-- TEMPORARY: Firebase Compatibility Layer -->
-    <!-- This prevents crashes while migrating from Firebase to SQL -->
-    <!-- TODO: Remove this once all modules are converted to SQL -->
-    <script>
-        // Create fake Firebase objects to prevent "database is not defined" errors
-        window.firebase = {
-            firestore: function() {
-                console.warn('⚠️ Firebase.firestore() called - This code needs to be updated to use SQL API');
-                return window.database;
-            },
-            storage: function() {
-                console.warn('⚠️ Firebase.storage() called - This code needs to be updated to use Laravel Storage');
-                return window.storage;
-            },
-            apps: {length: 0},
-            initializeApp: function() {
-                console.warn('⚠️ Firebase.initializeApp() called - This code needs to be updated');
-            }
-        };
-
-        // Create fake database object that returns empty results
-        window.database = {
-            collection: function(collectionName) {
-                console.warn(`⚠️ database.collection('${collectionName}') called - Please update to use SQL API: DB.get('/${collectionName}')`);
-                return {
-                    doc: function(docId) {
-                        return {
-                            get: function() {
-                                return Promise.resolve({
-                                    exists: false,
-                                    data: function() { return {}; },
-                                    id: docId
-                                });
-                            },
-                            set: function(data) {
-                                console.warn(`⚠️ Firestore set() called - Update to: DB.post('/${collectionName}', data)`);
-                                return Promise.resolve();
-                            },
-                            update: function(data) {
-                                console.warn(`⚠️ Firestore update() called - Update to: DB.put('/${collectionName}/${docId}', data)`);
-                                return Promise.resolve();
-                            },
-                            delete: function() {
-                                console.warn(`⚠️ Firestore delete() called - Update to: DB.delete('/${collectionName}/${docId}')`);
-                                return Promise.resolve();
-                            }
-                        };
-                    },
-                    where: function(field, op, value) {
-                        return this;
-                    },
-                    orderBy: function(field, direction) {
-                        return this;
-                    },
-                    limit: function(num) {
-                        return this;
-                    },
-                    get: function() {
-                        return Promise.resolve({
-                            docs: [],
-                            empty: true,
-                            size: 0,
-                            forEach: function(callback) {}
-                        });
-                    },
-                    onSnapshot: function(callback) {
-                        console.warn('⚠️ onSnapshot() called - Real-time features need manual implementation');
-                        // Call with empty data to prevent errors
-                        callback({docs: [], empty: true, size: 0});
-                        return function() {}; // Return unsubscribe function
-                    },
-                    add: function(data) {
-                        console.warn(`⚠️ Firestore add() called - Update to: DB.post('/${collectionName}', data)`);
-                        return Promise.resolve({id: 'temp_' + Date.now()});
-                    }
-                };
-            }
-        };
-
-        // Create fake storage object
-        window.storage = {
-            ref: function(path) {
-                console.warn(`⚠️ storage.ref('${path}') called - Update to use Laravel Storage: DB.post('/upload/image', formData)`);
-                return {
-                    put: function(file) {
-                        console.warn('⚠️ storage.put() called - Update to Laravel Storage');
-                        return Promise.resolve({
-                            ref: {
-                                getDownloadURL: function() {
-                                    return Promise.resolve('{{ asset('assets/images/placeholder-image.png') }}');
-                                }
-                            }
-                        });
-                    },
-                    putString: function(data, format) {
-                        console.warn('⚠️ storage.putString() called - Update to Laravel Storage');
-                        return Promise.resolve({
-                            ref: {
-                                getDownloadURL: function() {
-                                    return Promise.resolve('{{ asset('assets/images/placeholder-image.png') }}');
-                                }
-                            }
-                        });
-                    },
-                    delete: function() {
-                        console.warn('⚠️ storage.delete() called - Update to: DB.delete(\'/delete/image\')');
-                        return Promise.resolve();
-                    },
-                    child: function(childPath) {
-                        return this.ref(path + '/' + childPath);
-                    }
-                };
-            }
-        };
-
-        console.log('⚠️ Firebase Compatibility Layer Active - Site will work but data operations are disabled');
-        console.log('📝 Check console for warnings about code that needs updating');
-    </script>
+    -->
 
     <!-- Enhanced Notification Bell Styles -->
     <style>
@@ -2019,12 +1736,8 @@
             }
         }
 
-        // Initialize real-time listener for new orders - COMPLETELY DISABLED
+        // Initialize real-time listener for new orders
         function initializeOrderListener() {
-            console.log('ℹ️ Firebase order listener DISABLED - using SQL database for all orders');
-            return; // Exit immediately - no Firebase!
-
-            /* ENTIRE FIREBASE ORDER LISTENER DISABLED - CODE BELOW COMMENTED OUT
             // Guard: disable if Firebase/database not available
             if (typeof database === 'undefined' || !database || typeof database.collection !== 'function') {
                 return;
@@ -2037,7 +1750,6 @@
                 .limit(50) // Get last 50 orders
                 .get()
                 .then((snapshot) => {
-            */
                     if (!snapshot.empty) {
                         snapshot.docs.forEach(doc => {
                             knownOrderIds.add(doc.id);
@@ -2071,15 +1783,8 @@
                 });
         }
 
-        // Start real-time listener - DISABLED (Using SQL database instead)
+        // Start real-time listener
         function startRealtimeListener() {
-            console.log('ℹ️ Firebase real-time order listener DISABLED - using SQL database');
-            console.log('✅ All order operations now handled via SQL API');
-
-            // Firebase listener completely disabled - no more real-time connections
-            return;
-
-            /* FIREBASE LISTENER DISABLED - ALL CODE BELOW COMMENTED OUT
             console.log('🚀 Starting enhanced real-time listener for restaurant_orders collection...');
             console.log('📊 System Status:', {
                 knownOrderIds: knownOrderIds.size,
@@ -2092,7 +1797,6 @@
 
             // Listen for new documents
             ordersRef.onSnapshot((snapshot) => {
-                var disabledSnapshot = function(snapshot) {
                 console.log('📡 Snapshot received, changes:', snapshot.docChanges().length, 'Total docs:', snapshot.docs.length);
                 console.log('🔍 Snapshot metadata:', {
                     fromCache: snapshot.metadata.fromCache,
@@ -2340,12 +2044,9 @@
                                      currentPath.includes('/zone/bonus-settings') ||
                                      currentPath.includes('/test/');
 
-                // FIREBASE ORDER LISTENER DISABLED - Using SQL database instead
-                console.log('ℹ️ Real-time order notifications DISABLED - using SQL polling if needed');
-
-                // if (!isSettingsPage && window.ENABLE_REALTIME_NOTIFICATIONS === true) {
-                //     initializeOrderListener();
-                // }
+                if (!isSettingsPage && window.ENABLE_REALTIME_NOTIFICATIONS === true) {
+                    initializeOrderListener();
+                }
 
                 initializeTooltip();
                 initializeSoundControls();

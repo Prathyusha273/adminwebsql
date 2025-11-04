@@ -98,50 +98,70 @@
 @endsection
 @section('scripts')
     <script>
-        var database = firebase.firestore();
         $(document).ready(function () {
             $('.tax_menu').addClass('active');
         });
+
         $(".save-setting-btn").click(function () {
             var title = $(".tax_title").val();
             var country = $(".tax_country").val();
             var type = $(".tax_type :selected").val();
             var tax = $(".tax_amount").val();
-            var enable = false;
-            if ($(".tax_active").is(':checked')) {
-                enable = true;
-            }
-            var id = database.collection("tmp").doc().id;
+            var enable = $(".tax_active").is(':checked') ? 1 : 0;
+
+            // Validation
             if (title == '') {
                 $(".error_top").show();
                 $(".error_top").html("");
                 $(".error_top").append("<p>{{trans('lang.tax_title_error')}}</p>");
                 window.scrollTo(0, 0);
+                return;
             } else if (tax == '' || tax <= 0) {
                 $(".error_top").show();
                 $(".error_top").html("");
                 $(".error_top").append("<p>{{trans('lang.tax_amount_error')}}</p>");
                 window.scrollTo(0, 0);
-            } else {
-                jQuery("#overlay").show();
-                database.collection('tax').doc(id).set({
-                    'title': title,
-                    'country': country,
-                    'tax': tax,
-                    'type': type,
-                    'id': id,
-                    'enable': enable,
-                }).then(async function (result) {
-                    // Log the activity
-                    await logActivity('tax_settings', 'created', 'Created new tax: ' + title + ' (' + country + ') - Type: ' + type + ', Amount: ' + tax + ', Enabled: ' + (enable ? 'Yes' : 'No'));
+                return;
+            }
+
+            // Save to MySQL
+            jQuery("#overlay").show();
+            $.ajax({
+                url: '{{ route('tax.store') }}',
+                method: 'POST',
+                data: {
+                    _token: '{{ csrf_token() }}',
+                    title: title,
+                    country: country,
+                    tax: tax,
+                    type: type,
+                    enable: enable
+                },
+                success: function(response) {
                     jQuery("#overlay").hide();
-                    window.location.href = '{{ route("tax")}}';
-                }).catch(function (error) {
+                    if (response.success) {
+                        // Log the activity (don't wait for it)
+                        if (typeof logActivity === 'function') {
+                            logActivity('tax_settings', 'created', 'Created new tax: ' + title + ' (' + country + ') - Type: ' + type + ', Amount: ' + tax + ', Enabled: ' + (enable ? 'Yes' : 'No')).catch(function(e) {
+                                console.log('Activity logging failed:', e);
+                            });
+                        }
+                        // Redirect immediately
+                        alert('Tax created successfully!');
+                        window.location.href = '{{ route("tax") }}';
+                    } else {
+                        $(".error_top").show();
+                        $(".error_top").html("");
+                        $(".error_top").append("<p>" + response.message + "</p>");
+                    }
+                },
+                error: function(xhr, status, error) {
+                    jQuery("#overlay").hide();
                     $(".error_top").show();
                     $(".error_top").html("");
-                    $(".error_top").append("<p>" + error + "</p>");
-                });
-            }
-        })
+                    $(".error_top").append("<p>Error: " + (xhr.responseJSON?.message || error) + "</p>");
+                }
+            });
+        });
     </script>
 @endsection
