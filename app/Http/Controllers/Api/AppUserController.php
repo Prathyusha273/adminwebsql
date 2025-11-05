@@ -6,15 +6,48 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\AppUser;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class AppUserController extends Controller
 {
+    /**
+     * Generate a unique Firebase ID in format: user_XXX
+     */
+    private function generateFirebaseId()
+    {
+        // Get the highest existing user number
+        $lastUser = AppUser::where('firebase_id', 'like', 'user_%')
+            ->orderByRaw('CAST(SUBSTRING(firebase_id, 6) AS UNSIGNED) DESC')
+            ->first();
+
+        $nextNumber = 1;
+
+        if ($lastUser && $lastUser->firebase_id) {
+            // Extract number from firebase_id (e.g., "user_999" -> 999)
+            preg_match('/user_(\d+)/', $lastUser->firebase_id, $matches);
+            if (!empty($matches[1])) {
+                $nextNumber = (int)$matches[1] + 1;
+            }
+        }
+
+        // Generate new ID
+        $firebaseId = 'user_' . $nextNumber;
+
+        // Ensure uniqueness (in case of concurrent requests)
+        while (AppUser::where('firebase_id', $firebaseId)->exists()) {
+            $nextNumber++;
+            $firebaseId = 'user_' . $nextNumber;
+        }
+
+        return $firebaseId;
+    }
+
     public function store(Request $request)
     {
         $validated = $request->validate([
             'firstName' => 'required|string|max:255',
             'lastName' => 'required|string|max:255',
-            'email' => 'required|email|max:255',
+            'email' => 'required|email|max:255|unique:users,email',
             'password' => 'required|string|min:6',
             'countryCode' => 'nullable|string|max:10',
             'phoneNumber' => 'nullable|string|max:30',
@@ -38,27 +71,50 @@ class AppUserController extends Controller
             }
         }
 
-        $user = AppUser::updateOrCreate(
-            ['email' => $validated['email']],
-            [
-                'firstName' => $validated['firstName'],
-                'lastName' => $validated['lastName'],
-                'email' => $validated['email'],
-                'password' => bcrypt($validated['password']),
-                'countryCode' => $validated['countryCode'] ?? null,
-                'phoneNumber' => $validated['phoneNumber'] ?? null,
-                'profilePictureURL' => $profileUrl,
-                'provider' => 'email',
-                'role' => $validated['role'] ?? 'customer',
-                'active' => !empty($validated['active']) ? 'true' : 'false',
-                'isActive' => !empty($validated['active']) ? 1 : 0,
-                'zoneId' => $validated['zoneId'] ?? null,
-                'appIdentifier' => 'web',
-                'createdAt' => now()->format('Y-m-d H:i:s'),
-            ]
-        );
+        // Generate unique firebase_id
+        $firebase_id = $this->generateFirebaseId();
 
-        return response()->json(['status' => true, 'data' => ['id' => (string) ($user->firebase_id ?: $user->id)]], 201);
+        // Determine active status
+        $isActive = false;
+        if (isset($validated['active'])) {
+            if (is_bool($validated['active'])) {
+                $isActive = $validated['active'];
+            } else {
+                $isActive = ($validated['active'] === 'true' || $validated['active'] === true || $validated['active'] === 1);
+            }
+        }
+
+        // Create new user
+        $user = AppUser::create([
+            'firebase_id' => $firebase_id,
+            '_id' => $firebase_id, // Also set _id for compatibility
+            'firstName' => $validated['firstName'],
+            'lastName' => $validated['lastName'],
+            'email' => $validated['email'],
+            'password' => bcrypt($validated['password']),
+            'countryCode' => $validated['countryCode'] ?? null,
+            'phoneNumber' => $validated['phoneNumber'] ?? null,
+            'profilePictureURL' => $profileUrl,
+            'provider' => 'email',
+            'role' => $validated['role'] ?? 'customer',
+            'active' => $isActive ? 'true' : 'false',
+            'isActive' => $isActive ? 1 : 0,
+            'zoneId' => $validated['zoneId'] ?? null,
+            'appIdentifier' => 'web',
+            'createdAt' => now()->format('Y-m-d H:i:s'),
+            'wallet_amount' => 0,
+        ]);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'User created successfully',
+            'data' => [
+                'id' => (string) $user->firebase_id,
+                'firebase_id' => (string) $user->firebase_id,
+                'email' => $user->email,
+                'isActive' => $user->isActive
+            ]
+        ], 201);
     }
     public function index(Request $request)
     {

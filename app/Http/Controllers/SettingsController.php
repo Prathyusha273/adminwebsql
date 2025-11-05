@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\Request;
 use App\Models\Vendor;
+use App\Models\AppSetting;
 
 class SettingsController extends Controller
 {
@@ -502,36 +503,46 @@ class SettingsController extends Controller
      */
     public function getAppSettingsData()
     {
-        $row = DB::table('app_settings')->where('id', 'version_info')->first();
+        // First, try to get settings with id='version_info'
+        $row = AppSetting::where('id', 'version_info')->first();
+
+        // If not found, try to get the first row (in case id is different)
         if (!$row) {
+            $row = AppSetting::first();
+        }
+
+        if (!$row) {
+            // Return default values if no data exists
             return response()->json([
-                'force_update' => true,
+                'force_update' => false,
                 'latest_version' => '2.3.4',
                 'min_required_version' => '1.0.0',
                 'update_message' => 'Please Update',
-                'update_url' => null,
-                'android_version' => null,
-                'android_build' => null,
-                'android_update_url' => null,
-                'ios_version' => null,
-                'ios_build' => null,
-                'ios_update_url' => null,
+                'update_url' => '',
+                'android_version' => '2.3.4',
+                'android_build' => '1',
+                'android_update_url' => '',
+                'ios_version' => '2.3.4',
+                'ios_build' => '1',
+                'ios_update_url' => '',
                 'last_updated' => null,
             ]);
         }
+
+
         return response()->json([
             'force_update' => (bool) ($row->force_update ?? false),
-            'latest_version' => $row->latest_version,
-            'min_required_version' => $row->min_required_version,
-            'update_message' => $row->update_message,
-            'update_url' => $row->update_url,
-            'android_version' => $row->android_version,
-            'android_build' => $row->android_build,
-            'android_update_url' => $row->android_update_url,
-            'ios_version' => $row->ios_version,
-            'ios_build' => $row->ios_build,
-            'ios_update_url' => $row->ios_update_url,
-            'last_updated' => $row->last_updated,
+            'latest_version' => $row->latest_version ?? '',
+            'min_required_version' => $row->min_required_version ?? '',
+            'update_message' => $row->update_message ?? '',
+            'update_url' => $row->update_url ?? '',
+            'android_version' => $row->android_version ?? '',
+            'android_build' => $row->android_build ?? '',
+            'android_update_url' => $row->android_update_url ?? '',
+            'ios_version' => $row->ios_version ?? '',
+            'ios_build' => $row->ios_build ?? '',
+            'ios_update_url' => $row->ios_update_url ?? '',
+            'last_updated' => $row->last_updated ?? null,
         ]);
     }
 
@@ -552,7 +563,7 @@ class SettingsController extends Controller
         ]);
 
         $data = [
-            'force_update' => $request->boolean('force_update'),
+            'force_update' => $request->boolean('force_update') ? 1 : 0,
             'latest_version' => $payload['latest_version'],
             'min_required_version' => $payload['min_required_version'],
             'update_message' => $payload['update_message'],
@@ -566,7 +577,7 @@ class SettingsController extends Controller
             'last_updated' => now()->format('Y-m-d H:i:s'),
         ];
 
-        DB::table('app_settings')->updateOrInsert(['id' => 'version_info'], $data);
+        AppSetting::updateOrCreate(['id' => 'version_info'], $data);
         return response()->json(['success' => true]);
     }
 
@@ -1021,6 +1032,10 @@ class SettingsController extends Controller
             $globalRec = DB::table('settings')->where('document_name', 'globalSettings')->first();
             $globalFields = $globalRec && $globalRec->fields ? json_decode($globalRec->fields, true) : [];
 
+            // Get placeholder image settings (stored separately)
+            $placeholderRec = DB::table('settings')->where('document_name', 'placeHolderImage')->first();
+            $placeholderFields = $placeholderRec && $placeholderRec->fields ? json_decode($placeholderRec->fields, true) : [];
+
             // Get driver nearby settings for additional fields
             $driverRec = DB::table('settings')->where('document_name', 'DriverNearBy')->first();
             $driverFields = $driverRec && $driverRec->fields ? json_decode($driverRec->fields, true) : [];
@@ -1049,6 +1064,12 @@ class SettingsController extends Controller
             $mergedSettings = array_merge(
                 $globalFields,
                 [
+                    // Placeholder image from separate document
+                    'placeHolderImage' => $placeholderFields['image'] ?? ($globalFields['placeHolderImage'] ?? ''),
+
+                    // Placeholder image from separate document
+                    'placeHolderImage' => $placeholderFields['image'] ?? ($globalFields['placeHolderImage'] ?? ''),
+
                     // Driver settings
                     'minimumDepositToRideAccept' => $driverFields['minimumDepositToRideAccept'] ?? '-1000',
                     'minimumAmountToWithdrawal' => $driverFields['minimumAmountToWithdrawal'] ?? '50',
@@ -1058,17 +1079,17 @@ class SettingsController extends Controller
                     'driverLocationUpdate' => $driverFields['driverLocationUpdate'] ?? '30',
                     'singleOrderReceive' => $driverFields['singleOrderReceive'] ?? true,
                     'auto_approve_driver' => $driverFields['auto_approve_driver'] ?? false,
-                    
+
                     // Restaurant settings
                     'auto_approve_restaurant' => $restaurantFields['auto_approve_restaurant'] ?? false,
-                    
+
                     // Map key
                     'map_key' => $mapFields['key'] ?? '',
-                    'placeHolderImage' => $mapFields['placeHolderImage'] ?? ($globalFields['placeHolderImage'] ?? ''),
-                    
+
+
                     // Referral
                     'referralAmount' => $referralFields['referralAmount'] ?? '25',
-                    
+
                     // Version
                     'web_version' => $versionFields['web_version'] ?? '2.5.0',
                     'app_version' => $versionFields['app_version'] ?? '2.5.0',
@@ -1076,7 +1097,7 @@ class SettingsController extends Controller
                     'googlePlayLink' => $versionFields['googlePlayLink'] ?? '',
                     'websiteUrl' => $versionFields['websiteUrl'] ?? '',
                     'storeUrl' => $versionFields['storeUrl'] ?? '',
-                    
+
                     // Theme
                     'theme' => $themeFields['theme'] ?? 'theme_1'
                 ]
@@ -1096,8 +1117,9 @@ class SettingsController extends Controller
     {
         try {
             $rec = DB::table('settings')->where('document_name', 'globalSettings')->first();
+            $rec_placeholder = DB::table('settings')->where('document_name', 'placeholderImage')->first();
             $existing = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
-
+            $existing_placeholder = $rec_placeholder && $rec_placeholder->fields ? json_decode($rec_placeholder->fields, true) : [];
             // Fields that belong to globalSettings
             $globalFields = [
                 'applicationName',
@@ -1132,13 +1154,23 @@ class SettingsController extends Controller
             // Merge with existing
             $fields = array_merge($existing, $globalData);
 
+            // Save global settings
             DB::table('settings')->updateOrInsert(
                 ['document_name' => 'globalSettings'],
-                ['document_name' => 'globalSettings', 'fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
+                ['fields' => json_encode($fields, JSON_UNESCAPED_UNICODE)]
             );
 
+            // Save placeholder image separately if provided
+            if ($request->has('placeHolderImage')) {
+                $placeholderData = ['image' => $request->input('placeHolderImage')];
+                DB::table('settings')->updateOrInsert(
+                    ['document_name' => 'placeHolderImage'],
+                    ['fields' => json_encode($placeholderData, JSON_UNESCAPED_UNICODE)]
+                );
+            }
+
             // Update other settings if provided
-            
+
             // Driver settings
             $driverFields = [];
             if ($request->has('minimumDepositToRideAccept')) $driverFields['minimumDepositToRideAccept'] = $request->input('minimumDepositToRideAccept');
@@ -1148,7 +1180,7 @@ class SettingsController extends Controller
             if ($request->has('driverLocationUpdate')) $driverFields['driverLocationUpdate'] = $request->input('driverLocationUpdate');
             if ($request->has('singleOrderReceive')) $driverFields['singleOrderReceive'] = $request->boolean('singleOrderReceive');
             if ($request->has('auto_approve_driver')) $driverFields['auto_approve_driver'] = $request->boolean('auto_approve_driver');
-            
+
             if (!empty($driverFields)) {
                 $driverRec = DB::table('settings')->where('document_name', 'DriverNearBy')->first();
                 $existingDriver = $driverRec && $driverRec->fields ? json_decode($driverRec->fields, true) : [];
@@ -1197,7 +1229,7 @@ class SettingsController extends Controller
             if ($request->has('googlePlayLink')) $versionFields['googlePlayLink'] = $request->input('googlePlayLink');
             if ($request->has('websiteUrl')) $versionFields['websiteUrl'] = $request->input('websiteUrl');
             if ($request->has('storeUrl')) $versionFields['storeUrl'] = $request->input('storeUrl');
-            
+
             if (!empty($versionFields)) {
                 $versionRec = DB::table('settings')->where('document_name', 'Version')->first();
                 $existingVersion = $versionRec && $versionRec->fields ? json_decode($versionRec->fields, true) : [];
@@ -1854,7 +1886,7 @@ class SettingsController extends Controller
     {
         $rec = DB::table('settings')->where('document_name', 'martDeliveryCharge')->first();
         $existing = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
-        
+
         $fields = array_merge($existing, [
             'vendor_can_modify' => $request->boolean('vendor_can_modify'),
             'base_delivery_charge' => (int) $request->input('base_delivery_charge', 0),
@@ -2057,7 +2089,7 @@ class SettingsController extends Controller
     {
         $rec = DB::table('settings')->where('document_name', 'Version')->first();
         $existing = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
-        
+
         $fields = array_merge($existing, $request->except(['_token']));
 
         DB::table('settings')->updateOrInsert(
@@ -2084,7 +2116,7 @@ class SettingsController extends Controller
     {
         $rec = DB::table('settings')->where('document_name', 'restaurant')->first();
         $existing = $rec && $rec->fields ? json_decode($rec->fields, true) : [];
-        
+
         $fields = array_merge($existing, [
             'subscription_model' => $request->boolean('subscription_model'),
             'auto_approve_restaurant' => $request->boolean('auto_approve_restaurant')
@@ -2105,11 +2137,11 @@ class SettingsController extends Controller
         try {
             $allSettings = DB::table('settings')->get();
             $result = [];
-            
+
             foreach ($allSettings as $setting) {
                 $result[$setting->document_name] = json_decode($setting->fields, true);
             }
-            
+
             return response()->json([
                 'success' => true,
                 'data' => $result

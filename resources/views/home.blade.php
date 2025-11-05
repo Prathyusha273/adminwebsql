@@ -330,24 +330,6 @@
         $(document).ready(function () {
             $("#data-table_processing").show();
 
-            // Fetch payment summary using the same logic as payments page
-            $.getJSON("{{ route('payments.summary') }}", function (paymentResponse) {
-                if (paymentResponse.success) {
-                    const paymentData = paymentResponse.data;
-                    const currency = paymentData.currency.symbol;
-                    const currencyAtRight = paymentData.currency.symbolAtRight;
-                    const decimal_degits = paymentData.currency.decimal_degits;
-
-                    // Format total earnings with currency
-                    const earnings = parseFloat(paymentData.total_earnings || 0).toFixed(decimal_degits);
-                    if (currencyAtRight) {
-                        $("#earnings_count").text(earnings + currency);
-                    } else {
-                        $("#earnings_count").text(currency + earnings);
-                    }
-                }
-            });
-
             $.getJSON("{{ url('/dashboard/stats') }}", function (response) {
                 if (response.success) {
                     const data = response.data;
@@ -359,8 +341,11 @@
                     $("#driver_count").text(data.drivers);
                     $("#vendor_count").text(data.vendors);
 
-                    // Earnings count is now loaded from payments.summary above
+                    // Total Earnings from completed orders
+                    const earnings = parseFloat(data.earnings || 0).toFixed(2);
+                    $("#earnings_count").text(currency + earnings);
 
+                    // Admin Commission
                     const adminCommission = parseFloat(data.admin_commission || 0).toFixed(2);
                     $("#admincommission_count").text(currency + adminCommission);
 

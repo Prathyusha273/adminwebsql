@@ -63,12 +63,12 @@ class RestaurantController extends Controller
         $search = strtolower((string) data_get($request->input('search'), 'value', ''));
 
         $q = DB::table('subscription_history');
-        
+
         // Filter by user_id if provided
         if ($id !== '' && $id !== null) {
             $q->where('user_id', $id);
         }
-        
+
         if ($search !== '') {
             $q->where(function($query) use ($search) {
                 $query->whereRaw("LOWER(subscription_plan) LIKE ?", ['%'.$search.'%'])
@@ -76,23 +76,23 @@ class RestaurantController extends Controller
                       ->orWhere('payment_type', 'like', '%'.$search.'%');
             });
         }
-        
+
         $total = (clone $q)->count();
         $rows = $q->orderBy('createdAt', 'desc')->offset($start)->limit($length)->get();
 
         $data = [];
         foreach ($rows as $r) {
             $row = [];
-            
+
             // Parse subscription_plan JSON
             $planData = json_decode($r->subscription_plan, true);
             if (!$planData) {
                 $planData = [];
             }
-            
+
             // Checkbox
             $row[] = '<input type="checkbox" class="is_open" dataId="'.$r->id.'">';
-            
+
             // Vendor name (if not filtering by specific vendor)
             if ($id == '' || $id == null) {
                 $vendor = DB::table('vendors')->where('id', $r->user_id)->first();
@@ -102,20 +102,20 @@ class RestaurantController extends Controller
                 } else {
                     $vendorName = 'Unknown Vendor';
                 }
-                
+
                 // Format as clickable link (HTML will be rendered by DataTables)
                 $vendorLink = '<a href="'.route('restaurants.view', $r->user_id).'">' . htmlspecialchars($vendorName, ENT_QUOTES, 'UTF-8') . '</a>';
                 $row[] = $vendorLink;
             }
-            
+
             // Plan name
             $planName = $planData['name'] ?? 'N/A';
             $row[] = e($planName);
-            
+
             // Plan type
             $planType = $planData['type'] ?? 'paid';
             $row[] = ucfirst($planType);
-            
+
             // Expires at (using expiry_date column)
             $expiryDate = $r->expiry_date ?? 'N/A';
             if ($expiryDate && $expiryDate != 'N/A') {
@@ -127,7 +127,7 @@ class RestaurantController extends Controller
             } else {
                 $row[] = 'N/A';
             }
-            
+
             // Purchase date (using createdAt column)
             $purchaseDate = $r->createdAt ?? 'N/A';
             if ($purchaseDate && $purchaseDate != 'N/A') {
@@ -139,10 +139,10 @@ class RestaurantController extends Controller
             } else {
                 $row[] = 'N/A';
             }
-            
+
             $data[] = $row;
         }
-        
+
         return response()->json([
             'draw' => $draw,
             'recordsTotal' => $total,
@@ -3113,6 +3113,413 @@ class RestaurantController extends Controller
                 'message' => 'Error fetching subscription plans: ' . $e->getMessage(),
                 'data' => []
             ], 500);
+        }
+    }
+
+    /**
+     * Get vendor document list data (SQL API)
+     */
+    public function getVendorDocumentData($id)
+    {
+        try {
+            // Get vendor info
+            $vendor = AppUser::where('firebase_id', $id)
+                ->orWhere('id', $id)
+                ->orWhere('_id', $id)
+                ->where('role', 'vendor')
+                ->first();
+
+            if (!$vendor) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Vendor not found'
+                ], 404);
+            }
+
+            // Get enabled documents for restaurant type
+            $documents = DB::table('documents')
+                ->where('enable', true)
+                ->where('type', 'restaurant')
+                ->orderBy('title', 'asc')
+                ->get();
+
+            // Get vendor's document verifications
+            $docVerify = DB::table('documents_verify')
+                ->where('id', $id)
+                ->first();
+
+            $documentsData = [];
+            if ($docVerify && $docVerify->documents) {
+                $documentsData = json_decode($docVerify->documents, true) ?: [];
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'vendor' => [
+                        'id' => $vendor->firebase_id ?? $vendor->_id ?? $vendor->id,
+                        'firstName' => $vendor->firstName,
+                        'lastName' => $vendor->lastName,
+                        'fcmToken' => $vendor->fcmToken ?? ''
+                    ],
+                    'documents' => $documents,
+                    'documentVerifications' => $documentsData
+                ]
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error fetching vendor document data: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching vendor document data: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Update document status (approve/reject) - SQL API
+     */
+    public function updateDocumentStatus(Request $request, $vendorId, $docId)
+    {
+        try {
+            $request->validate([
+                'status' => 'required|in:approved,rejected'
+            ]);
+
+            $status = $request->input('status');
+
+            // Get current document verification
+            $docVerify = DB::table('documents_verify')
+                ->where('id', $vendorId)
+                ->first();
+
+            $documents = [];
+            if ($docVerify && $docVerify->documents) {
+                $documents = json_decode($docVerify->documents, true) ?: [];
+            }
+
+            // Find and update the document status
+            $found = false;
+            foreach ($documents as &$doc) {
+                if ($doc['documentId'] == $docId) {
+                    $doc['status'] = $status;
+                    $found = true;
+                    break;
+                }
+            }
+
+            // If document not found in verification, add it
+            if (!$found) {
+                $documents[] = [
+                    'documentId' => $docId,
+                    'status' => $status,
+                    'frontImage' => '',
+                    'backImage' => ''
+                ];
+            }
+
+            // Update or insert document verification
+            if ($docVerify) {
+                DB::table('documents_verify')
+                    ->where('id', $vendorId)
+                    ->update([
+                        'documents' => json_encode($documents),
+                        'updated_at' => now()
+                    ]);
+            } else {
+                DB::table('documents_verify')->insert([
+                    'id' => $vendorId,
+                    'documents' => json_encode($documents),
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+            }
+
+            // Update vendor verification status
+            $this->updateVendorVerificationStatus($vendorId);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Document status updated successfully'
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error updating document status: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error updating document status: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get document details for upload page (SQL API)
+     */
+    public function getDocumentUploadData($vendorId, $docId)
+    {
+        try {
+            // Get document details
+            $document = DB::table('documents')
+                ->where('id', $docId)
+                ->where('enable', true)
+                ->first();
+
+            if (!$document) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Document not found or disabled'
+                ], 404);
+            }
+
+            // Get vendor's document verification for this document
+            $docVerify = DB::table('documents_verify')
+                ->where('id', $vendorId)
+                ->first();
+
+            $documentVerification = null;
+            $keydata = -1;
+
+            if ($docVerify && $docVerify->documents) {
+                $documents = json_decode($docVerify->documents, true) ?: [];
+                foreach ($documents as $index => $doc) {
+                    if (isset($doc['documentId']) && $doc['documentId'] == $docId) {
+                        $documentVerification = $doc;
+                        $keydata = $index;
+                        break;
+                    }
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'document' => $document,
+                    'documentVerification' => $documentVerification,
+                    'keydata' => $keydata,
+                    'isAdd' => $documentVerification === null
+                ]
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error fetching document upload data: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching document upload data: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Upload/save vendor document (SQL API)
+     */
+    public function uploadVendorDocument(Request $request, $vendorId, $docId)
+    {
+        try {
+            $request->validate([
+                'frontImage' => 'nullable|string', // Base64 image data
+                'backImage' => 'nullable|string', // Base64 image data
+                'frontImageUrl' => 'nullable|string', // Existing URL
+                'backImageUrl' => 'nullable|string', // Existing URL
+            ]);
+
+            // Get document details
+            $document = DB::table('documents')
+                ->where('id', $docId)
+                ->where('enable', true)
+                ->first();
+
+            if (!$document) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Document not found or disabled'
+                ], 404);
+            }
+
+            // Handle file uploads
+            $frontImageUrl = $request->input('frontImageUrl', '');
+            $backImageUrl = $request->input('backImageUrl', '');
+
+            // Upload front image if provided as base64 (new upload)
+            if ($request->has('frontImage') && $request->input('frontImage') && !empty($request->input('frontImage'))) {
+                try {
+                    $frontImageUrl = $this->uploadBase64Image($request->input('frontImage'), 'vendor_documents', $vendorId . '_' . $docId . '_front_' . time());
+                } catch (\Exception $e) {
+                    \Log::error('Error uploading front image: ' . $e->getMessage());
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Error uploading front image: ' . $e->getMessage()
+                    ], 500);
+                }
+            }
+
+            // Upload back image if provided as base64 (new upload)
+            if ($request->has('backImage') && $request->input('backImage') && !empty($request->input('backImage'))) {
+                try {
+                    $backImageUrl = $this->uploadBase64Image($request->input('backImage'), 'vendor_documents', $vendorId . '_' . $docId . '_back_' . time());
+                } catch (\Exception $e) {
+                    \Log::error('Error uploading back image: ' . $e->getMessage());
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Error uploading back image: ' . $e->getMessage()
+                    ], 500);
+                }
+            }
+
+            // Get current document verification
+            $docVerify = DB::table('documents_verify')
+                ->where('id', $vendorId)
+                ->first();
+
+            $documents = [];
+            $keydata = -1;
+
+            if ($docVerify && $docVerify->documents) {
+                $documents = json_decode($docVerify->documents, true) ?: [];
+            }
+
+            // Find existing document or create new
+            $found = false;
+            foreach ($documents as $index => &$doc) {
+                if (isset($doc['documentId']) && $doc['documentId'] == $docId) {
+                    // Update existing - only update if new URL provided
+                    if ($document->frontSide) {
+                        if ($frontImageUrl) {
+                            $doc['frontImage'] = $frontImageUrl;
+                        } else {
+                            // Keep existing if no new upload
+                            $doc['frontImage'] = $doc['frontImage'] ?? '';
+                        }
+                    }
+                    if ($document->backSide) {
+                        if ($backImageUrl) {
+                            $doc['backImage'] = $backImageUrl;
+                        } else {
+                            // Keep existing if no new upload
+                            $doc['backImage'] = $doc['backImage'] ?? '';
+                        }
+                    }
+                    $doc['status'] = 'uploaded';
+                    $found = true;
+                    $keydata = $index;
+                    break;
+                }
+            }
+
+            // Add new document if not found
+            if (!$found) {
+                $newDoc = [
+                    'documentId' => $docId,
+                    'status' => 'uploaded'
+                ];
+                if ($document->frontSide) {
+                    $newDoc['frontImage'] = $frontImageUrl ?: '';
+                }
+                if ($document->backSide) {
+                    $newDoc['backImage'] = $backImageUrl ?: '';
+                }
+                $documents[] = $newDoc;
+                $keydata = count($documents) - 1;
+            }
+
+            // Update or insert document verification
+            if ($docVerify) {
+                DB::table('documents_verify')
+                    ->where('id', $vendorId)
+                    ->update([
+                        'documents' => json_encode($documents),
+                        'updated_at' => now()
+                    ]);
+            } else {
+                DB::table('documents_verify')->insert([
+                    'id' => $vendorId,
+                    'documents' => json_encode($documents),
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+            }
+
+            // Update vendor verification status
+            $this->updateVendorVerificationStatus($vendorId);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Document uploaded successfully'
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error uploading vendor document: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error uploading document: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Upload base64 image to storage
+     */
+    private function uploadBase64Image($base64Data, $folder = 'vendor_documents', $filename = null)
+    {
+        try {
+            // Remove data URL prefix if present
+            $base64Data = preg_replace('/^data:image\/[a-z]+;base64,/', '', $base64Data);
+
+            // Decode base64
+            $imageData = base64_decode($base64Data);
+
+            if (!$imageData) {
+                throw new \Exception('Invalid base64 image data');
+            }
+
+            // Generate filename if not provided
+            if (!$filename) {
+                $filename = uniqid() . '_' . time();
+            }
+            $filename .= '.jpg';
+
+            // Save file using Storage
+            $path = $folder . '/' . $filename;
+            Storage::disk('public')->put($path, $imageData);
+
+            // Return public URL
+            return Storage::disk('public')->url($path);
+        } catch (\Exception $e) {
+            \Log::error('Error uploading base64 image: ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Update vendor document verification status
+     */
+    private function updateVendorVerificationStatus($vendorId)
+    {
+        try {
+            // Get enabled documents count
+            $enabledDocCount = DB::table('documents')
+                ->where('enable', true)
+                ->where('type', 'restaurant')
+                ->count();
+
+            // Get approved documents count
+            $docVerify = DB::table('documents_verify')
+                ->where('id', $vendorId)
+                ->first();
+
+            $approvedCount = 0;
+            if ($docVerify && $docVerify->documents) {
+                $documents = json_decode($docVerify->documents, true) ?: [];
+                $approvedCount = count(array_filter($documents, function($doc) {
+                    return isset($doc['status']) && $doc['status'] == 'approved';
+                }));
+            }
+
+            // Update vendor verification status
+            $isDocumentVerify = ($approvedCount >= $enabledDocCount) && $enabledDocCount > 0;
+
+            AppUser::where('firebase_id', $vendorId)
+                ->orWhere('id', $vendorId)
+                ->orWhere('_id', $vendorId)
+                ->where('role', 'vendor')
+                ->update(['isDocumentVerify' => $isDocumentVerify ? 1 : 0]);
+        } catch (\Exception $e) {
+            \Log::error('Error updating vendor verification status: ' . $e->getMessage());
         }
     }
 }

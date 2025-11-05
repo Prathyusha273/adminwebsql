@@ -61,7 +61,13 @@
                         <input type="text" placeholder="{{ trans('lang.search_location') }}" id="search-box"
                             class="form-control controls" />
                         <div id="autocomplete-list"></div>
-                        <div id="map"></div>
+                        <div id="map-loading" style="height: 500px; display: flex; align-items: center; justify-content: center; background: #f5f5f5; border: 1px solid #ddd;">
+                            <div style="text-align: center;">
+                                <i class="fa fa-spinner fa-spin" style="font-size: 48px; color: #007cff;"></i>
+                                <p style="margin-top: 15px; color: #666;">Loading map...</p>
+                            </div>
+                        </div>
+                        <div id="map" style="display: none;"></div>
                     </div>
                     <div class="col-sm-2 mapType">
                         <ul style="list-style: none;padding:0">
@@ -80,7 +86,7 @@
                                 </a>
                             </li>
                             <li>
-                                <a id="delete-all-button" href="javascript:void(0)" 
+                                <a id="delete-all-button" href="javascript:void(0)"
                                     class="btn-floating zone-delete-all-btn btn-large waves-effect waves-light tooltipped"
                                     title="Use this tool to delete all selected areas">
                                     <i class="mdi mdi-delete map_icons"></i>
@@ -177,69 +183,149 @@
 @section('scripts')
 <script>
     var id = "<?php echo $id;?>";
-    var default_lat = getCookie('default_latitude');
-    var default_lng = getCookie('default_longitude');
+    var default_lat = getCookie('default_latitude') || '23.022505';
+    var default_lng = getCookie('default_longitude') || '72.571365';
     var geopoints = '';
     var zoneAreaData = [];
     let drawnItems = new L.FeatureGroup();
     let deleteButton ,dragMap;
     let selectedPolygon = null;
     var mapType = 'ONLINE';
-    
-    // Load map type from SQL settings
-    $.ajax({
-        url: '/api/settings/driver',
-        method: 'GET',
-        async: false,
-        success: function(data) {
-            if (data && data.selectedMapType && data.selectedMapType == "osm") {
-                mapType = "OFFLINE";
-            }
-            console.log('✅ Loaded map type from SQL:', mapType);
-        },
-        error: function() {
-            console.warn('⚠️ Could not load map settings, using default (ONLINE)');
+    var googleMapKey = '';
+
+    // Initialize zone edit map with proper async loading
+    async function initializeZoneEditMap() {
+        console.log('🗺️ Initializing Zone Edit Map...');
+
+        // Wait for settings to be loaded from settings-loader.js
+        let attempts = 0;
+        while (typeof window.mapType === 'undefined' && attempts < 50) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
         }
-    });
-    
-    var onclick='',polygon='',deletearea='';
-    if(mapType == "OFFLINE"){
-        onclick = function() {
-            console.log("Offline mode, no drawing available.");
-        };
-        polygon = function() {
-            enablePolygonDrawing(map) ;
-        };
-    }else
-    {
-        onclick = function() {
-            drawingManager.setDrawingMode(null);
-        };
-        polygon = function() {
-            drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
-        };
-        deletearea=function() {
-            clearMap();
-        };
+
+        // Get map type from global settings (set by settings-loader.js)
+        if (window.mapType) {
+            mapType = window.mapType;
+            console.log('✅ Using map type from global settings:', mapType);
+        } else {
+            console.warn('⚠️ Global settings not loaded, using default ONLINE mode');
+            mapType = 'ONLINE';
+        }
+
+        // Get Google Maps key from global settings (set by settings-loader.js)
+        if (window.googleMapKey) {
+            googleMapKey = window.googleMapKey;
+            console.log('✅ Using Google Maps key from global settings');
+        } else {
+            console.warn('⚠️ Google Maps key not found, using fallback');
+            googleMapKey = 'AIzaSyAp4vhbe3AWgIj2lpS52M_kjgBKr-u13Xo';
+        }
+
+        console.log('✅ Zone Edit - Map Type:', mapType);
+
+        // Load map library if needed
+        if (mapType == "ONLINE") {
+            await loadGoogleMapsAPI();
+        } else {
+            // Leaflet is already loaded in layout, just wait a bit to ensure it's ready
+            await new Promise(resolve => setTimeout(resolve, 500));
+            console.log('✅ Using OpenStreetMap (Leaflet)');
+        }
+
+        // Now initialize the map
+        try {
+            initMap();
+        } catch (error) {
+            console.error('❌ Error initializing map:', error);
+            $('#map-loading').html(`
+                <div style="text-align: center; padding: 20px;">
+                    <i class="fa fa-exclamation-triangle" style="font-size: 48px; color: #f44336;"></i>
+                    <p style="margin-top: 15px; color: #666;">Failed to load map</p>
+                    <p style="color: #999; font-size: 14px;">${error.message}</p>
+                    <button onclick="location.reload()" class="btn btn-primary" style="margin-top: 10px;">
+                        <i class="fa fa-refresh"></i> Reload Page
+                    </button>
+                </div>
+            `);
+        }
     }
-    document.getElementById("select-button").onclick = onclick;
-    document.getElementById("add-button").onclick = polygon;
-    document.getElementById("delete-all-button").onclick = deletearea;
+
+    // Load Google Maps API
+    async function loadGoogleMapsAPI() {
+        console.log('📍 Loading Google Maps API...');
+
+        // Check if already loaded
+        if (typeof google !== 'undefined' && typeof google.maps !== 'undefined' && typeof google.maps.drawing !== 'undefined') {
+            console.log('✅ Google Maps already loaded');
+            return;
+        }
+
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = `https://maps.googleapis.com/maps/api/js?key=${googleMapKey}&libraries=places,drawing`;
+            script.async = true;
+            script.defer = true;
+
+            script.onload = function() {
+                console.log('✅ Google Maps API loaded successfully');
+                resolve();
+            };
+
+            script.onerror = function() {
+                console.error('❌ Failed to load Google Maps API, falling back to OpenStreetMap');
+                mapType = 'OFFLINE';
+                resolve(); // Still resolve to continue with Leaflet
+            };
+
+            document.head.appendChild(script);
+        });
+    }
+
+    // Set up button handlers after map type is determined
+    function setupButtonHandlers() {
+        var onclick='',polygon='',deletearea='';
+        if(mapType == "OFFLINE"){
+            onclick = function() {
+                DragMap();
+            };
+            polygon = function() {
+                enablePolygonDrawing(map);
+            };
+            deletearea = function() {
+                deleteSelectedPolygon();
+            };
+        }else
+        {
+            onclick = function() {
+                drawingManager.setDrawingMode(null);
+            };
+            polygon = function() {
+                drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
+            };
+            deletearea=function() {
+                clearMap();
+            };
+        }
+        document.getElementById("select-button").onclick = onclick;
+        document.getElementById("add-button").onclick = polygon;
+        document.getElementById("delete-all-button").onclick = deletearea;
+    }
     $(document).ready(function () {
         // Load zone data from server-side variable
         @if(isset($zone))
         var zone = {!! json_encode($zone) !!};
-        
+
         $("#name").val(zone.name);
-        
+
         // Parse area JSON from database
         var areaData = typeof zone.area === 'string' ? JSON.parse(zone.area) : zone.area;
         zoneAreaData = areaData;
-        
+
         // Convert area data to coordinates format
         let coordinates = areaData.map(item => [item.longitude || item.lng, item.latitude || item.lat]);
         document.getElementById('area').value = coordinates;
-        
+
         var AREA = document.getElementById('area').value;
         const values = AREA.split(',');
         const latLonArray = [];
@@ -248,7 +334,7 @@
             const lat = parseFloat(values[i + 1]);
             latLonArray.push([lat, lon]);
         }
-        
+
         if(mapType == "ONLINE"){
             latLonArray.push(latLonArray[0]);
             document.getElementById('coordinates').value = latLonArray;
@@ -263,13 +349,13 @@
             });
             document.getElementById('coordinates').value = JSON.stringify(coordinatesUpdated);
         }
-        
+
         if (zone.publish) {
             $("#publish").prop('checked', true);
         }
         default_lat = zone.latitude;
         default_lng = zone.longitude;
-        
+
         // Convert area data to geopoints format for map
         geopoints = areaData.map(item => ({
             latitude: item.latitude || item.lat,
@@ -279,14 +365,13 @@
         console.error('Zone data not available');
         alert('Error: Zone data not loaded');
         @endif
-        
-        setTimeout(function(){
-            initMap();
-        },2500);
+
+        // Initialize map with proper async loading
+        initializeZoneEditMap();
         $(".edit-setting-btn").click(function () {
             var name = $("#name").val();
             var publish = $("#publish").is(":checked");
-            var coordinates_object = $('#coordinates').val(); 
+            var coordinates_object = $('#coordinates').val();
             $(".error_top").empty();
             if (name == '') {
                 $(".error_top").show();
@@ -322,7 +407,7 @@
                             }
                             if (latitude && longitude) {
                                 jQuery("#overlay").show();
-                                
+
                                 // Update zone in SQL database
                                 $.ajax({
                                     url: "{{ url('/zone') }}/" + id,
@@ -352,12 +437,12 @@
                                         alert('Error updating zone');
                                     }
                                 });
-                            } 
-                            else 
+                            }
+                            else
                             {
                                 console.error("Invalid latitude or longitude");
                             }
-                    } 
+                    }
                     else
                     {
                         console.error("Coordinates array is empty or invalid.");
@@ -365,7 +450,7 @@
                 }
                 else
                 {
-                    try 
+                    try
                     {
                         if (coordinates_object.startsWith('[[')) {
                             coordinates_object = coordinates_object.slice(1);
@@ -376,7 +461,7 @@
                         if (coordinates_object.trim().startsWith('[') && coordinates_object.trim().endsWith(']')) {
                                 var coordinates_parse;
                                 try {
-                                    coordinates_parse = JSON.parse(coordinates_object); 
+                                    coordinates_parse = JSON.parse(coordinates_object);
                                 }
                                 catch (error) {
                                     console.error("Error parsing JSON:", error);
@@ -414,15 +499,15 @@
                                             const lng = updatedItem.lon;
                                             if (typeof lat === 'number'  && !isNaN(lat) && !isNaN(lng) && typeof lng === 'number') {
                                                 area.push({latitude: lat, longitude: lng});
-                                                if (!latitude && !longitude) { 
+                                                if (!latitude && !longitude) {
                                                     latitude = lat;
                                                     longitude = lng;
                                                 }
                                             } else {
                                                 validCoordinates = false;
-                                            }   
-                                    } 
-                                    else 
+                                            }
+                                    }
+                                    else
                                     {
                                             validCoordinates = false;
                                     }
@@ -450,7 +535,7 @@
                         window.scrollTo(0, 0);
                     }
                     jQuery("#overlay").show();
-                    
+
                     // Update zone in SQL database
                     $.ajax({
                         url: "{{ url('/zone') }}/" + id,
@@ -480,7 +565,7 @@
                             alert('Error updating zone');
                         }
                     });
-                } 
+                }
             }
         });
     });
@@ -575,7 +660,7 @@
                 lng: path.getAt(i).lng()
             });
         }
-        document.getElementById('coordinates').value = JSON.stringify(coordinates);        
+        document.getElementById('coordinates').value = JSON.stringify(coordinates);
         return coordinates;
     }
     function createMarker(coord, nr, map) {
@@ -684,14 +769,14 @@
             };
             // Add the custom button to the map
             deleteButton.addTo(map);
-        } 
+        }
     }
-    function enablePolygonDrawing(map) { 
+    function enablePolygonDrawing(map) {
         map.dragging.disable();
         if (!drawnItems) {
             drawnItems = new L.FeatureGroup();
             map.addLayer(drawnItems);
-        } 
+        }
         // Create the delete button before enabling drawing
         createDeleteButton();
         createDragMapButton();
@@ -709,7 +794,7 @@
         });
         map.on('click', function(event) {
             map.dragging.disable();
-            var latlng = event.latlng; 
+            var latlng = event.latlng;
             if (selectedPolygon) {
                 // If there's already a selected polygon, deselect it
                 selectedPolygon.setStyle({ color: '#3388ff' });
@@ -737,7 +822,7 @@
            return;
         }
             drawnItems.removeLayer(selectedPolygon);
-            selectedPolygon = null; 
+            selectedPolygon = null;
             if(selectedPolygon == null){
                 document.getElementById('coordinates').value = '';
             }
@@ -785,7 +870,7 @@
                                         });
                                         marker.on('moveend', function() {
                                             updateCoordinatesDisplay(newLat, newLon);
-                                        }); 
+                                        });
                                         if (place.address) {
                                             var city = place.address.city || place.address.town || place.address.village || 'N/A';
                                             var state = place.address.state || 'N/A';
@@ -840,7 +925,7 @@
                     .then(data => {
                         // Display location details
                         if (data && data.address) {
-                            var address = data.display_name; 
+                            var address = data.display_name;
                             document.getElementById('search-box').value = address;
                         }
                     })
@@ -896,6 +981,10 @@
         }
     }
     function initMap() {
+        // Hide loading indicator and show map
+        $('#map-loading').hide();
+        $('#map').show();
+
         if (mapType == "ONLINE"){
             var infowindow = new google.maps.InfoWindow({
                 size: new google.maps.Size(150, 50)
@@ -1127,14 +1216,14 @@
                                 console.error("Invalid latLng:", latLng); // Log invalid latLng for debugging
                                 return null; // Avoid undefined latLngs
                             }
-                        }).filter(item => item !== null); 
+                        }).filter(item => item !== null);
                          // Final array to be saved as JSON
                         let finalArray = convertedArray;
-                        layer.setLatLngs(finalArray); 
+                        layer.setLatLngs(finalArray);
                         document.getElementById('coordinates').value = JSON.stringify(finalArray);
                     }
                 });
-            }); 
+            });
             map.on('draw:resize', function (event) {
                 var layer = event.layer;
                 if (layer instanceof L.Polygon || layer instanceof L.MultiPolygon) {
@@ -1154,15 +1243,19 @@
                                 console.error("Invalid latLng:", latLng); // Log invalid latLng for debugging
                                 return null; // Avoid undefined latLngs
                             }
-                        }).filter(item => item !== null); 
+                        }).filter(item => item !== null);
                          // Final array to be saved as JSON
                         let finalArray = convertedArray;
-                        layer.setLatLngs(finalArray); 
-                        document.getElementById('coordinates').value = JSON.stringify(finalArray);            
+                        layer.setLatLngs(finalArray);
+                        document.getElementById('coordinates').value = JSON.stringify(finalArray);
                 }
             });
-            enablePolygonDrawing(map);   
-        }  
+            enablePolygonDrawing(map);
+        }
+
+        // Set up button handlers after map is initialized
+        setupButtonHandlers();
+        console.log('✅ Zone edit map initialized successfully');
     }
 </script>
 @endsection

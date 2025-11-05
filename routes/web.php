@@ -59,7 +59,10 @@ Route::middleware(['permission:users,users.create'])->group(function () {
 });
 Route::middleware(['permission:users,users.view'])->group(function () {
     Route::get('/users/view/{id}', [App\Http\Controllers\UserController::class, 'view'])->name('users.view');
-
+    // API endpoint to get user data
+    Route::get('/users/data/{id}', [App\Http\Controllers\UserController::class, 'getUserData'])->name('users.data');
+    // API endpoint to add wallet amount
+    Route::post('/users/wallet/{id}', [App\Http\Controllers\UserController::class, 'addWalletAmount'])->name('users.wallet.add');
 });
 Route::middleware(['permission:vendors,vendors'])->group(function () {
     Route::get('/vendors', [App\Http\Controllers\RestaurantController::class, 'vendors'])->name('vendors');
@@ -605,7 +608,7 @@ Route::prefix('settings')->group(function () {
     });
     Route::middleware(['permission:global-setting,settings.app.globals'])->group(function () {
         Route::get('app/globals', [App\Http\Controllers\SettingsController::class, 'globals'])->name('settings.app.globals');
-        
+
         // Diagnostic page for debugging settings (no permission required for testing)
         Route::get('app/globals/diagnostic', function() {
             return view('settings.diagnostic');
@@ -1007,9 +1010,17 @@ Route::middleware(['permission:documents,documents.list'])->group(function () {
 });
 Route::middleware(['permission:vendors-document,vendor.document.list'])->group(function () {
     Route::get('vendors/document-list/{id}', [App\Http\Controllers\RestaurantController::class, 'DocumentList'])->name('vendors.document');
+    // API endpoint to get vendor document data
+    Route::get('/api/vendors/document-data/{id}', [App\Http\Controllers\RestaurantController::class, 'getVendorDocumentData'])->name('api.vendors.document.data');
 });
 Route::middleware(['permission:vendors-document,vendor.document.edit'])->group(function () {
     Route::get('/vendors/document/upload/{driverId}/{id}', [App\Http\Controllers\RestaurantController::class, 'DocumentUpload'])->name('vendors.document.upload');
+    // API endpoint to update document status
+    Route::post('/api/vendors/document-status/{vendorId}/{docId}', [App\Http\Controllers\RestaurantController::class, 'updateDocumentStatus'])->name('api.vendors.document.status');
+    // API endpoint to get document upload data
+    Route::get('/api/vendors/document-upload-data/{vendorId}/{docId}', [App\Http\Controllers\RestaurantController::class, 'getDocumentUploadData'])->name('api.vendors.document.upload.data');
+    // API endpoint to upload vendor document
+    Route::post('/api/vendors/document-upload/{vendorId}/{docId}', [App\Http\Controllers\RestaurantController::class, 'uploadVendorDocument'])->name('api.vendors.document.upload.save');
 });
 Route::middleware(['permission:drivers-document,driver.document.list'])->group(function () {
     Route::get('drivers/document-list/{id}', [App\Http\Controllers\DriverController::class, 'DocumentList'])->name('drivers.document');

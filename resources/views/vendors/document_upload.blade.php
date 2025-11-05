@@ -17,9 +17,14 @@
     <div class="container-fluid">
         <div class="card  pb-4">
             <div class="card-body">
-                <div class="error_top"></div>
+                <div class="error_top" style="display:none;"></div>
                 <div class="row restaurant_payout_create">
                     <div class="restaurant_payout_create-inner doc-body">
+                        <!-- Loading indicator -->
+                        <div id="document-loading" style="text-align: center; padding: 40px;">
+                            <i class="fa fa-spinner fa-spin" style="font-size: 48px; color: #007cff;"></i>
+                            <p style="margin-top: 15px; color: #666;">Loading document details...</p>
+                        </div>
                     </div>
                 </div>
                 <div class="form-group col-12 text-center btm-btn">
@@ -33,115 +38,99 @@
     @endsection
     @section('scripts')
     <script>
+        // ✅ SQL API VERSION - No Firebase!
+        console.log('✅ Vendor Document Upload using SQL API');
+
         var docId = "{{$id}}";
         var id = "{{$vendorId}}";
-        var allVendor = database.collection('users').where('role', '==', 'vendor');
-        var vendorRef= database.collection('users').where('id','==',id);
-        var database = firebase.firestore();
-        var storageRef = firebase.storage().ref('images');
-        var storage = firebase.storage();
-        var docref = database.collection('documents_verify').doc(id);
-        var requestUrl = "{{request()->is('vendors/document-list/*')}}";
+        var placeholderImage = '{{ asset('images/placeholder.png') }}';
         var back_photo = '';
         var front_photo = '';
         var backFileName = '';
         var frontFileName = '';
         var backFileOld = '';
         var frontFileOld = '';
-    var placeholderImage = '{{ asset('images/placeholder.png') }}';
-        $(document).ready(function () {
+        var documentData = null;
+        var documentVerification = null;
+        var keydata = -1;
+        var isAdd = true;
+
+        $(document).ready(async function () {
             jQuery("#data-table_processing").show();
-            var html = '';
-            var docRef = database.collection('documents').doc(docId.trim());
-            var vendorDocRef = database.collection('documents_verify').doc(id);
-            docRef.get().then(async function (Snapshot) {
-                var docRef = Snapshot.data();
-                vendorDocRef.get().then(async function (docrefSnapshot) {
-                    var vendorDocRef = docrefSnapshot.data() && docrefSnapshot.data().documents ? docrefSnapshot.data().documents.filter((doc) => doc.documentId.trim() == docId.trim())[0] : [];
-                    var keydata = docrefSnapshot.data() && docrefSnapshot.data().documents ? docrefSnapshot.data().documents.findIndex((doc) => doc.documentId.trim() == docId.trim()) : '';
-                    if (docRef.enable) {
-                        html += '<fieldset><legend>' + docRef.title + '</legend>';
-                        if (docRef.backSide) {
-                            html += '<div class="form-group row width-50">';
-                        } else {
-                            html += '<div class="form-group row width-100">';
-                        }
-                        if (docRef.frontSide) {
-                            html += '<input type="hidden" name="frontSide" id="frontSide" value="' + (docRef.frontSide ? true : false) + '">';
-                            front_photo = vendorDocRef && vendorDocRef.frontImage ? vendorDocRef.frontImage : '';
-                            frontFileOld = vendorDocRef && vendorDocRef.frontImage ? vendorDocRef.frontImage : '';
-                            html += '<label class="col-3 control-label">' + "{{trans('lang.front_image')}}" + '<span class="required-field"></span></label><div class="col-7"><input type="file" onChange="handleFrontFileSelect(event)" class="form-control image"><div class="placeholder_img_thumb front_image"><span class="image-item"><span class="remove-btn" id="front_image"><i class="fa fa-remove"></i></span><img onerror="this.onerror=null;this.src=\'' + placeholderImage + '\'" class="rounded" style="width:200px; height:auto" src="' + (vendorDocRef && vendorDocRef.frontImage ? vendorDocRef.frontImage : placeholderImage) + '" alt="image"></span></div><div id="uploding_image"></div></div></div>';
-                        }
-                        if (docRef.backSide) {
-                            html += '<input type="hidden" name="backSide" id="backSide" value="' + (docRef.backSide ? true : false) + '">';
-                            back_photo = vendorDocRef && vendorDocRef.backImage ? vendorDocRef.backImage : '';
-                            backFileOld = vendorDocRef && vendorDocRef.backImage ? vendorDocRef.backImage : '';
-                            html += '<div class="form-group row width-50"><label class="col-3 control-label">' + "{{trans('lang.back_image')}}" + '<span class="required-field"></span></label><div class="col-7"><input type="file" onChange="handleBackFileSelect(event)" class="form-control image"><div class="placeholder_img_thumb back_image"><span class="image-item"><span class="remove-btn" id="back_image"><i class="fa fa-remove"></i></span><img onerror="this.onerror=null;this.src=\'' + placeholderImage + '\'" class="rounded" style="width:200px; height:auto" src="' + (vendorDocRef && vendorDocRef.backImage ? vendorDocRef.backImage : placeholderImage) + '" alt="image"></span></div><div id="uploding_image"></div></div></div>';
-                        }
-                        html += '<input type="hidden" name="docId" id="docId" value="' + docRef.id + '">';
-                        html += '<input type="hidden" name="keydata" id="keydata" value="' + (keydata ? keydata : 0) + '">';
-                        html += '<input type="hidden" name="isAdd" id="isAdd" value="' + (vendorDocRef && vendorDocRef.documentId ? false : true) + '">';
-                        html += '</fieldset>';
-                    }
-                    $(".doc-body").html(html);
-                    jQuery("#data-table_processing").hide();
-                })
-            });
-        })
-        async function storeImageData() {
-            var newPhoto = [];
+
+            // Load document upload data from SQL API
+            await loadDocumentUploadData();
+        });
+
+        async function loadDocumentUploadData() {
             try {
-                if (frontFileOld != "" && front_photo != frontFileOld) {
-                    var frontFileOldRef = await storage.refFromURL(frontFileOld);
-                    imageBucket = frontFileOldRef.bucket;
-                    var envBucket = "<?php echo env('FIREBASE_STORAGE_BUCKET'); ?>";
-                    if (imageBucket == envBucket) {
-                        await frontFileOldRef.delete().then(() => {
-                            console.log("Old file deleted!")
-                        }).catch((error) => {
-                            console.log("ERR File delete ===", error);
-                        });
-                    } else {
-                        console.log('Bucket not matched');
-                    }
+                console.log('✅ Loading document upload data from SQL API');
+
+                const response = await $.ajax({
+                    url: '/api/vendors/document-upload-data/' + id + '/' + docId,
+                    method: 'GET',
+                    dataType: 'json'
+                });
+
+                if (!response.success || !response.data) {
+                    console.error('❌ Failed to load document upload data');
+                    jQuery("#data-table_processing").hide();
+                    $('#document-loading').html('<div class="alert alert-danger">Failed to load document data: ' + (response.message || 'Unknown error') + '</div>');
+                    return;
                 }
-                if (front_photo != frontFileOld) {
-                    front_photo = front_photo.replace(/^data:image\/[a-z]+;base64,/, "")
-                    var uploadTask = await storageRef.child(frontFileName).putString(front_photo, 'base64', { contentType: 'image/jpg' });
-                    var downloadURL = await uploadTask.ref.getDownloadURL();
-                    newPhoto['front_img'] = downloadURL;
-                    front_photo = downloadURL;
+
+                console.log('✅ Document upload data loaded:', response);
+
+                documentData = response.data.document;
+                documentVerification = response.data.documentVerification;
+                keydata = response.data.keydata;
+                isAdd = response.data.isAdd;
+
+                if (!documentData || !documentData.enable) {
+                    $('#document-loading').html('<div class="alert alert-danger">Document not found or disabled</div>');
+                    jQuery("#data-table_processing").hide();
+                    return;
+                }
+
+                // Build HTML form
+                var html = '';
+                html += '<fieldset><legend>' + (documentData.title || 'Document') + '</legend>';
+
+                if (documentData.backSide) {
+                    html += '<div class="form-group row width-50">';
                 } else {
-                    newPhoto['front_img'] = front_photo;
+                    html += '<div class="form-group row width-100">';
                 }
-                if (backFileOld != "" && back_photo != backFileOld) {
-                    var backFileOldRef = await storage.refFromURL(backFileOld);
-                    imageBucket = backFileOldRef.bucket;
-                    var envBucket = "<?php echo env('FIREBASE_STORAGE_BUCKET'); ?>";
-                    if (imageBucket == envBucket) {
-                        await backFileOldRef.delete().then(() => {
-                            console.log("Old file deleted!")
-                        }).catch((error) => {
-                            console.log("ERR File delete ===", error);
-                        });
-                    } else {
-                        console.log('Bucket not matched');
-                    }
+
+                if (documentData.frontSide) {
+                    html += '<input type="hidden" name="frontSide" id="frontSide" value="true">';
+                    front_photo = documentVerification && documentVerification.frontImage ? documentVerification.frontImage : '';
+                    frontFileOld = front_photo;
+                    html += '<label class="col-3 control-label">' + "{{trans('lang.front_image')}}" + '<span class="required-field"></span></label><div class="col-7"><input type="file" onChange="handleFrontFileSelect(event)" class="form-control image"><div class="placeholder_img_thumb front_image"><span class="image-item"><span class="remove-btn" id="front_image"><i class="fa fa-remove"></i></span><img onerror="this.onerror=null;this.src=\'' + placeholderImage + '\'" class="rounded" style="width:200px; height:auto" src="' + (front_photo || placeholderImage) + '" alt="image"></span></div><div id="uploding_image"></div></div></div>';
                 }
-                if (back_photo != backFileOld) {
-                    back_photo = back_photo.replace(/^data:image\/[a-z]+;base64,/, "")
-                    var uploadTask = await storageRef.child(backFileName).putString(back_photo, 'base64', { contentType: 'image/jpg' });
-                    var downloadURL = await uploadTask.ref.getDownloadURL();
-                    newPhoto['back_img'] = downloadURL;
-                    back_photo = downloadURL;
-                } else {
-                    newPhoto['back_img'] = back_photo;
+
+                if (documentData.backSide) {
+                    html += '<input type="hidden" name="backSide" id="backSide" value="true">';
+                    back_photo = documentVerification && documentVerification.backImage ? documentVerification.backImage : '';
+                    backFileOld = back_photo;
+                    html += '<div class="form-group row width-50"><label class="col-3 control-label">' + "{{trans('lang.back_image')}}" + '<span class="required-field"></span></label><div class="col-7"><input type="file" onChange="handleBackFileSelect(event)" class="form-control image"><div class="placeholder_img_thumb back_image"><span class="image-item"><span class="remove-btn" id="back_image"><i class="fa fa-remove"></i></span><img onerror="this.onerror=null;this.src=\'' + placeholderImage + '\'" class="rounded" style="width:200px; height:auto" src="' + (back_photo || placeholderImage) + '" alt="image"></span></div><div id="uploding_image"></div></div></div>';
                 }
+
+                html += '<input type="hidden" name="docId" id="docId" value="' + documentData.id + '">';
+                html += '<input type="hidden" name="keydata" id="keydata" value="' + keydata + '">';
+                html += '<input type="hidden" name="isAdd" id="isAdd" value="' + (isAdd ? 'true' : 'false') + '">';
+                html += '</fieldset>';
+
+                $('#document-loading').hide();
+                $(".doc-body").html(html);
+                jQuery("#data-table_processing").hide();
             } catch (error) {
-                console.log("ERR ===", error);
+                console.error('❌ Error loading document upload data:', error);
+                jQuery("#data-table_processing").hide();
+                $('#document-loading').html('<div class="alert alert-danger">Error loading document data: ' + error.message + '</div>');
             }
-            return newPhoto;
         }
+
         function handleFrontFileSelect(evt) {
             var f = evt.target.files[0];
             var validExtensions = ['jpg', 'jpeg', 'png'];
@@ -156,7 +145,6 @@
                     var filePayload = e.target.result;
                     var val = f.name;
                     var ext = val.split('.')[1];
-                    var docName = val.split('fakepath')[1];
                     var filename = (f.name).replace(/C:\\fakepath\\/i, '')
                     var timestamp = Number(new Date());
                     var filename = filename.split('.')[0] + "_" + timestamp + '.' + ext;
@@ -168,6 +156,7 @@
             })(f);
             reader.readAsDataURL(f);
         }
+
         function handleBackFileSelect(evt) {
             var f = evt.target.files[0];
             var validExtensions = ['jpg', 'jpeg', 'png'];
@@ -182,7 +171,6 @@
                     var filePayload = e.target.result;
                     var val = f.name;
                     var ext = val.split('.')[1];
-                    var docName = val.split('fakepath')[1];
                     var filename = (f.name).replace(/C:\\fakepath\\/i, '')
                     var timestamp = Number(new Date());
                     var filename = filename.split('.')[0] + "_" + timestamp + '.' + ext;
@@ -194,110 +182,99 @@
             })(f);
             reader.readAsDataURL(f);
         }
-        $(document).on('click', '.save-form-btn', function () {
-            var status = 'approved';
-            var type='restaurant';
+
+        $(document).on('click', '.save-form-btn', async function () {
             var docId = $("#docId").val();
-            var isAdd = $("#isAdd").val();
-            var keydata = $("#keydata").val();
             var backSide = $("#backSide").val();
             var frontSide = $("#frontSide").val();
+
             if (backSide && back_photo == "") {
                 $(".error_top").show();
                 $(".error_top").html("");
                 $(".error_top").append("<p>{{trans('lang.document_back_side_help')}}</p>");
                 window.scrollTo(0, 0);
-            } else if (frontSide && front_photo == "") {
+                return;
+            }
+
+            if (frontSide && front_photo == "") {
                 $(".error_top").show();
                 $(".error_top").html("");
                 $(".error_top").append("<p>{{trans('lang.document_front_side_help')}}</p>");
                 window.scrollTo(0, 0);
-            } else {
-                jQuery("#data-table_processing").show();
-                storeImageData().then(IMG => {
-                    if (isAdd == "true") {
-                        database.collection('documents_verify').doc(id).set({
-                            id: id,
-                            type: type,
-                            documents: firebase.firestore.FieldValue.arrayUnion({
-                                backImage: IMG.back_img ? IMG.back_img : '',
-                                documentId: docId.trim(),
-                                frontImage: IMG.front_img ? IMG.front_img : '',
-                                status: status,
-                            })
-                        }, { merge: true }).then(async function (result) {
-                            var enableDocIds = await getDocId();
-                            await vendorRef.get().then(async function (snapshotsvendor) {
-                                if (snapshotsvendor.docs.length > 0) {
-                                    var verification = await vendorDocVerification(enableDocIds, snapshotsvendor);
-                                    if (verification) {
-                                        jQuery("#data-table_processing").hide();
-                                        window.location.href = "/vendors/document-list/" + id;
-                                    }
-                                } else {
-                                    jQuery("#data-table_processing").hide();
-                                    window.location.href = "/vendors/document-list/" + id;
-                                }
-                            })
-                            $('li').removeClass('active');
-                            $("#documents-tab").addClass('active');
-                            $("#documents-tab").click();
-                            $(".error_top").html("");
-                            jQuery("#data-table_processing").hide();
-                        }).catch(function (error) {
-                            jQuery("#data-table_processing").hide();
-                            $(".error_top").show();
-                            $(".error_top").html("");
-                            $(".error_top").append("<p>" + error + "</p>");
-                        });
-                    } else {
-                        database.collection('documents_verify').doc(id)
-                            .get().then((doc) => {
-                                var objects = doc.data().documents;
-                                var objectToupdate = objects[keydata];
-                                objectToupdate.backImage = IMG.back_img ? IMG.back_img : '';
-                                objectToupdate.documentId = docId.trim();
-                                objectToupdate.frontImage = IMG.front_img ? IMG.front_img : '';
-                                objectToupdate.status = status;
-                                objects[keydata] = objectToupdate;
-                                database.collection('documents_verify').doc(id).update({
-                                    documents: objects
-                                }).then(async function () {
-                                    var enableDocIds = await getDocId();
-                                    await vendorRef.get().then(async function (snapshotsvendor) {
-                                        if (snapshotsvendor.docs.length > 0) {
-                                            var verification = await vendorDocVerification(enableDocIds, snapshotsvendor);
-                                            if (verification) {
-                                                jQuery("#data-table_processing").hide();
-                                                window.location.href = "/vendors/document-list/" + id;
-                                            }
-                                        } else {
-                                            jQuery("#data-table_processing").hide();
-                                            window.location.href = "/vendors/document-list/" + id;
-                                        }
-                                    })
-                                    $('li').removeClass('active');
-                                    $("#documents-tab").addClass('active');
-                                    $("#documents-tab").click();
-                                    $(".error_top").html("");
-                                    jQuery("#data-table_processing").hide();
-                                }).catch(function (error) {
-                                    jQuery("#data-table_processing").hide();
-                                    $(".error_top").show();
-                                    $(".error_top").html("");
-                                    $(".error_top").append("<p>" + error + "</p>");
-                                });
-                            })
+                return;
+            }
+
+            jQuery("#data-table_processing").show();
+            $(".error_top").hide();
+
+            try {
+                console.log('✅ Uploading vendor document via SQL API');
+
+                // Prepare data
+                var uploadData = {
+                    _token: '{{ csrf_token() }}'
+                };
+
+                // Handle front image
+                if (frontSide) {
+                    if (front_photo && front_photo != frontFileOld) {
+                        // New image uploaded (base64)
+                        if (front_photo.startsWith('data:')) {
+                            uploadData.frontImage = front_photo;
+                        } else {
+                            // Already a URL
+                            uploadData.frontImageUrl = front_photo;
+                        }
+                    } else if (frontFileOld) {
+                        // Keep old image
+                        uploadData.frontImageUrl = frontFileOld;
                     }
-                }).catch(err => {
-                    jQuery("#data-table_processing").hide();
+                }
+
+                // Handle back image
+                if (backSide) {
+                    if (back_photo && back_photo != backFileOld) {
+                        // New image uploaded (base64)
+                        if (back_photo.startsWith('data:')) {
+                            uploadData.backImage = back_photo;
+                        } else {
+                            // Already a URL
+                            uploadData.backImageUrl = back_photo;
+                        }
+                    } else if (backFileOld) {
+                        // Keep old image
+                        uploadData.backImageUrl = backFileOld;
+                    }
+                }
+
+                const response = await $.ajax({
+                    url: '/api/vendors/document-upload/' + id + '/' + docId,
+                    method: 'POST',
+                    dataType: 'json',
+                    data: uploadData
+                });
+
+                if (response.success) {
+                    console.log('✅ Document uploaded successfully');
+                    window.location.href = "/vendors/document-list/" + id;
+                } else {
+                    console.error('❌ Failed to upload document:', response.message);
                     $(".error_top").show();
                     $(".error_top").html("");
-                    $(".error_top").append("<p>" + err + "</p>");
+                    $(".error_top").append("<p>" + (response.message || 'Failed to upload document') + "</p>");
                     window.scrollTo(0, 0);
-                });
+                    jQuery("#data-table_processing").hide();
+                }
+            } catch (error) {
+                console.error('❌ Error uploading document:', error);
+                $(".error_top").show();
+                $(".error_top").html("");
+                $(".error_top").append("<p>Error uploading document. Please try again.</p>");
+                window.scrollTo(0, 0);
+                jQuery("#data-table_processing").hide();
             }
         });
+
         $(document).on('click', '.remove-btn', function () {
             var currentId = $(this).attr('id')
             if (currentId == "back_image") {
@@ -311,37 +288,5 @@
                 frontFileName = '';
             }
         });
-        async function getDocId() {
-            var enableDocIds = [];
-            await database.collection('documents').where('type', '==', 'restaurant').where('enable', "==", true).get().then(async function (snapshots) {
-                await snapshots.forEach((doc) => {
-                    enableDocIds.push(doc.data().id);
-                });
-            });
-            return enableDocIds;
-        }
-        async function vendorDocVerification(enableDocIds, snapshotsvendor) {
-            var isCompleted = false;
-            await Promise.all(snapshotsvendor.docs.map(async (vendor) => {
-                await database.collection('documents_verify').doc(vendor.id).get().then(async function (docrefSnapshot) {
-                    if (docrefSnapshot.data() && docrefSnapshot.data().documents.length > 0) {
-                        var vendorDocId = await docrefSnapshot.data().documents.filter((doc) => doc.status == 'approved').map((docData) => docData.documentId);
-                        if (vendorDocId.length >= enableDocIds.length) {
-                            await database.collection('users').doc(vendor.id).update({ 'isDocumentVerify': true });
-                        } else {
-                            await enableDocIds.forEach(async (docId) => {
-                                if (!vendorDocId.includes(docId)) {
-                                    await database.collection('users').doc(vendor.id).update({ 'isDocumentVerify': false });
-                                }
-                            });
-                        }
-                    } else {
-                        await database.collection('users').doc(vendor.id).update({ 'isDocumentVerify': false });
-                    }
-                });
-                isCompleted = true;
-            }));
-            return isCompleted;
-        }
     </script>
     @endsection
