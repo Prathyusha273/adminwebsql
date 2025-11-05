@@ -33,7 +33,7 @@
             <li>
                 <a class="has-arrow waves-effect waves-dark" href="#" aria-expanded="false">
                     <i class="mdi mdi-map-marker-circle"></i>
-                    <span class="hide-menu">{{trans('lang.zone_management')}}</span>
+                    <span class="hide-menu">{{trans('lang.zone')}}</span>
                 </a>
                 <ul aria-expanded="false" class="collapse">
                     @if(in_array('zone', $role_has_permission))

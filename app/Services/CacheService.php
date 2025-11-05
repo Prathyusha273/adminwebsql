@@ -11,6 +11,7 @@ use App\Models\Vendor;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
+use App\Services\CommissionService;
 
 class CacheService
 {
@@ -40,7 +41,7 @@ class CacheService
             'users' => User::where('role', '=', 'customer')->count(),
             'drivers' => User::where('role', '=', 'driver')->count(),
             'vendors' => Vendor::count(),
-            'earnings' => self::getTotalEarnings(),
+            'earnings' => self::getTotalEarnings(), // Sum of all completed orders
             'admin_commission' => self::getAdminCommission(),
             'orders_by_status' => [
                 'placed'     => restaurant_orders::where('status', 'Order Placed')->count(),
@@ -64,22 +65,20 @@ class CacheService
     }
 
     /**
-     * Calculate total earnings using Eloquent
+     * Calculate total earnings (sum of all completed order amounts)
+     * Uses smart fallback: ToPay first, then toPayAmount for orders without ToPay
      */
     private static function getTotalEarnings()
     {
         try {
-            // ✅ Only include orders that are completed or shipped
-            $statuses = ['Order Completed', 'Order Shipped'];
-
-            $amountCol = self::firstExistingColumn('restaurant_orders', ['toPayAmount','grandTotal','total','amount','totalAmount']);
-            if (!$amountCol) {
-                Log::warning('No amount column found in restaurant_orders table.');
-                return 0;
-            }
-
-            $total = restaurant_orders::whereIn('status', $statuses)
-                ->sum(DB::raw('COALESCE(CAST(' . $amountCol . ' AS DECIMAL(16,2)),0)'));
+            // ✅ Only include orders with status "Order Completed"
+            // Use COALESCE to try ToPay first, fallback to toPayAmount
+            $total = restaurant_orders::where('status', 'Order Completed')
+                ->sum(DB::raw('COALESCE(
+                    NULLIF(CAST(ToPay AS DECIMAL(16,2)), 0),
+                    CAST(toPayAmount AS DECIMAL(16,2)),
+                    0
+                )'));
 
             return round((float) $total, 2);
         } catch (\Exception $e) {
@@ -256,19 +255,8 @@ class CacheService
     private static function getAdminCommission()
     {
         try {
-            // ✅ Include only completed/shipped orders
-            $statuses = ['Order Completed', 'Order Shipped'];
-
-            $col = self::firstExistingColumn('restaurant_orders', ['adminCommission','commission','admin_commission']);
-            if (!$col) {
-                Log::warning('No admin commission column found in restaurant_orders table.');
-                return 0;
-            }
-
-            $total = restaurant_orders::whereIn('status', $statuses)
-                ->sum(DB::raw('COALESCE(CAST(' . $col . ' AS DECIMAL(16,2)),0)'));
-
-            return round((float) $total, 2);
+            // Use the CommissionService for accurate calculation
+            return CommissionService::calculateTotalAdminCommission();
         } catch (\Exception $e) {
             Log::error('Error calculating admin commission: ' . $e->getMessage());
             return 0;

@@ -70,7 +70,7 @@ foreach ($countries as $keycountry => $valuecountry) {
 							</div>
 							<div class="form-group row">
 								<label class="col-md-3 control-label">{{trans('lang.user_phone')}}</label>
-									<div class="col-md-6">     
+									<div class="col-md-6">
 										<div class="phone-box position-relative" id="phone-box">
 											<select name="country" id="country_selector">
 												<?php foreach ($newcountries as $keycy => $valuecy) { ?>
@@ -132,7 +132,7 @@ $(document).ready(function() {
 	});
     var apiBase = '{{ url('/api') }}';
     var photo = "";
-	var fileName=''; 
+	var fileName='';
 	$(".save-form-btn").click(function () {
 		var userFirstName = $(".user_first_name").val();
 		var userLastName = $(".user_last_name").val();
@@ -171,7 +171,7 @@ $(document).ready(function() {
 			$(".error_top").html("");
 			$(".error_top").append("<p>{{trans('lang.user_phone_error')}}</p>");
 			window.scrollTo(0, 0);
-		} 
+		}
 		 else {
             jQuery("#data-table_processing").show();
             storeImageData().then(IMG => {
@@ -186,13 +186,14 @@ $(document).ready(function() {
                         password: password,
                         countryCode: country_code,
                         phoneNumber: userPhone,
-                        active: active ? 'true' : 'false',
+                        active: active, // Send boolean directly
                         role: 'customer',
                         zoneId: null,
                         photo: photo || '',
                         fileName: fileName || ''
                     }
-                }).done(async function(){
+                }).done(async function(response){
+                    console.log('✅ User created successfully:', response);
                     try {
                         if (typeof logActivity === 'function') {
                             await logActivity('users', 'created', 'Created new user: ' + userFirstName + ' ' + userLastName);
@@ -204,8 +205,24 @@ $(document).ready(function() {
                     jQuery("#data-table_processing").hide();
                     $(".error_top").show();
                     $(".error_top").html("");
-                    var msg = (xhr.responseJSON && xhr.responseJSON.message) ? xhr.responseJSON.message : 'Failed to create user';
+
+                    console.error('❌ Error creating user:', xhr);
+
+                    var msg = 'Failed to create user';
+                    if (xhr.responseJSON) {
+                        if (xhr.responseJSON.message) {
+                            msg = xhr.responseJSON.message;
+                        } else if (xhr.responseJSON.errors) {
+                            // Validation errors
+                            var errors = xhr.responseJSON.errors;
+                            msg = Object.values(errors).flat().join('<br>');
+                        }
+                    } else if (xhr.responseText) {
+                        msg = 'Server error: ' + xhr.statusText;
+                    }
+
                     $(".error_top").append("<p>" + msg + "</p>");
+                    window.scrollTo(0, 0);
                 });
             });
 		}

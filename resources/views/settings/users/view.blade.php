@@ -73,7 +73,14 @@
             </div>
            </div>
            <div class="card-body">
-              <div class="row">
+              <!-- Loading indicator -->
+              <div id="user-data-loading" style="text-align: center; padding: 40px;">
+                  <i class="fa fa-spinner fa-spin" style="font-size: 48px; color: #007cff;"></i>
+                  <p style="margin-top: 15px; color: #666;">Loading user details...</p>
+              </div>
+
+              <!-- User data content (hidden until loaded) -->
+              <div class="row" id="user-data-content" style="display: none;">
                  <div class="col-md-6">
                     <div class="restaurant_info_left">
                         <div class="d-flex mb-1">
@@ -109,6 +116,15 @@
                         <div class="mapouter" style="display:none;"><div class="gmap_canvas"><iframe class="gmap_iframe" width="100%" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" src="https://maps.google.com/maps?width=600&amp;height=225&amp;hl=en&amp;q=University of Oxford&amp;t=&amp;z=14&amp;ie=UTF8&amp;iwloc=B&amp;output=embed"></iframe><a href="https://sprunkiplay.com/">Sprunki Game</a></div><style>.mapouter{position:relative;text-align:right;width:100%;height:225px;}.gmap_canvas {overflow:hidden;background:none!important;width:100%;height:225px;}.gmap_iframe {height:225px!important;}</style></div>
                     </div>
                  </div>
+              </div>
+
+              <!-- Error message container -->
+              <div id="user-data-error" style="display: none; text-align: center; padding: 40px;">
+                  <i class="fa fa-exclamation-triangle" style="font-size: 48px; color: #f44336;"></i>
+                  <p style="margin-top: 15px; color: #666;" class="error-message"></p>
+                  <button onclick="location.reload()" class="btn btn-primary mt-3">
+                      <i class="fa fa-refresh"></i> Reload Page
+                  </button>
               </div>
            </div>
         </div>
@@ -207,11 +223,18 @@
                     if (!response.success || !response.data) {
                         console.error('❌ Failed to load user data');
                         jQuery("#data-table_processing").hide();
+                        $('#user-data-loading').hide();
+                        $('#user-data-error').show();
+                        $('#user-data-error .error-message').text('Failed to load user data');
                         return;
                     }
 
                     console.log('✅ User data loaded from SQL:', response);
                     var user = response.data;
+
+                    // Hide loading, show content
+                    $('#user-data-loading').hide();
+                    $('#user-data-content').show();
                     // Display user name
                     $(".user_name").text(user.firstName + ' ' + user.lastName);
 
@@ -295,6 +318,19 @@
                     console.error('❌ Error loading user data:', error);
                     console.error('Response:', xhr.responseText);
                     jQuery("#data-table_processing").hide();
+                    $('#user-data-loading').hide();
+                    $('#user-data-error').show();
+
+                    // Show specific error message
+                    var errorMsg = 'Failed to load user data';
+                    if (xhr.status === 404) {
+                        errorMsg = 'User not found';
+                    } else if (xhr.status === 403) {
+                        errorMsg = 'Access denied';
+                    } else if (xhr.responseJSON && xhr.responseJSON.message) {
+                        errorMsg = xhr.responseJSON.message;
+                    }
+                    $('#user-data-error .error-message').text(errorMsg);
                 }
             });
         });
