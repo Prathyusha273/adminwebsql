@@ -91,15 +91,7 @@
 @endsection
 @section('scripts')
 <script>
-    var database = firebase.firestore();
-    var logo_url = "";
-    var storageRef = firebase.storage().ref('images');
-    var storage = firebase.storage();
-    var placeholderImage = '{{ asset('images/placeholder.png') }}';
-
     $(document).ready(function () {
-        jQuery("#data-table_processing").show();
-
         // Auto-generate slug from name
         $('.brand_name').on('input', function () {
             const name = $(this).val();
@@ -111,141 +103,40 @@
             $('.brand_slug').val(slug);
         });
 
-        jQuery("#data-table_processing").hide();
-
-        $(".save-form-btn").click(async function () {
-            var name = $(".brand_name").val();
-            var slug = $(".brand_slug").val();
-            var description = $("#brand_description").val();
-            var status = $(".brand_status").is(":checked");
-
-            // Enhanced validation
-            if (name == '') {
-                $(".error_top").show();
-                $(".error_top").html("");
-                $(".error_top").append("<p>{{trans('lang.enter_brand_name_error')}}</p>");
-                window.scrollTo(0, 0);
-                return;
-            } else if (description == '') {
-                $(".error_top").show();
-                $(".error_top").html("");
-                $(".error_top").append("<p>{{trans('lang.enter_brand_description_error')}}</p>");
-                window.scrollTo(0, 0);
-                return;
-            } else if (name.length > 255) {
-                $(".error_top").show();
-                $(".error_top").html("");
-                $(".error_top").append("<p>Brand name must be 255 characters or less.</p>");
-                window.scrollTo(0, 0);
-                return;
-            } else {
-                $(".error_top").hide();
-
-                // Check for duplicate brand names
-                jQuery("#data-table_processing").show();
-                const existingBrands = await database.collection('brands')
-                    .where('name', '==', name.trim())
-                    .get();
-
-                if (!existingBrands.empty) {
-                    jQuery("#data-table_processing").hide();
-                    $(".error_top").show();
-                    $(".error_top").html("");
-                    $(".error_top").append("<p>A brand with this name already exists. Please choose a different name.</p>");
-                    window.scrollTo(0, 0);
-                    return;
+        $(".save-form-btn").click(function(){
+            const name = $(".brand_name").val();
+            const description = $("#brand_description").val();
+            if(!name){
+                $(".error_top").show().html('<p>{{trans('lang.enter_brand_name_error')}}</p>');
+                window.scrollTo(0,0); return;
+            }
+            if(!description){
+                $(".error_top").show().html('<p>{{trans('lang.enter_brand_description_error')}}</p>');
+                window.scrollTo(0,0); return;
+            }
+            $(".error_top").hide();
+            let fd = new FormData();
+            fd.append('name', name);
+            fd.append('slug', $(".brand_slug").val());
+            fd.append('description', description);
+            fd.append('status', $(".brand_status").is(':checked') ? 1 : 0);
+            const file = document.getElementById('brand_logo').files[0];
+            if(file){ fd.append('logo', file); }
+            fd.append('_token','{{ csrf_token() }}');
+            $.ajax({
+                url: '{{ route('brands.store') }}',
+                method: 'POST',
+                data: fd,
+                processData: false,
+                contentType: false,
+                success: function(res){ window.location.href = '{{ route('brands') }}'; },
+                error: function(xhr){
+                    const msg = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Error saving brand';
+                    $(".error_top").show().html('<p>'+msg+'</p>');
+                    window.scrollTo(0,0);
                 }
-
-                var id = database.collection("tmp").doc().id;
-
-                await storeLogoData().then(async (logo) => {
-                    if (logo) {
-                        logo_url = logo;
-                    }
-
-                    var brandData = {
-                        'name': name,
-                        'slug': slug || name.toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').trim('-'),
-                        'description': description,
-                        'logo_url': logo_url,
-                        'status': status,
-                        'id': id,
-                        'created_at': firebase.firestore.FieldValue.serverTimestamp(),
-                        'updated_at': firebase.firestore.FieldValue.serverTimestamp()
-                    };
-
-                    database.collection('brands').doc(id).set(brandData)
-                        .then(async function (result) {
-                            console.log('✅ Brand saved successfully, now logging activity...');
-                            try {
-                                if (typeof logActivity === 'function') {
-                                    console.log('🔍 Calling logActivity for brand creation...');
-                                    await logActivity('brands', 'created', 'Created new brand: ' + name);
-                                    console.log('✅ Activity logging completed successfully');
-                                } else {
-                                    console.error('❌ logActivity function is not available');
-                                }
-                            } catch (error) {
-                                console.error('❌ Error calling logActivity:', error);
-                            }
-                            window.location.href = '{{ route("brands") }}';
-                        });
-                }).catch(err => {
-                    jQuery("#data-table_processing").hide();
-                    $(".error_top").show();
-                    $(".error_top").html("");
-                    $(".error_top").append("<p>" + err + "</p>");
-                    window.scrollTo(0, 0);
-                });
-            }
-        })
-    })
-
-    async function storeLogoData() {
-        var logo = '';
-        if (logo_url && logo_url != '') {
-            try {
-                // Upload base64 image to Firebase Storage
-                var filename = 'brand_logo_' + Date.now() + '.jpg';
-                var storageRef = firebase.storage().ref('images/brands/' + filename);
-
-                // Convert base64 to blob
-                var base64Data = logo_url.replace(/^data:image\/[a-z]+;base64,/, "");
-                var uploadTask = await storageRef.putString(base64Data, 'base64', {
-                    contentType: 'image/jpeg'
-                });
-
-                // Get download URL
-                logo = await uploadTask.ref.getDownloadURL();
-                console.log('✅ Logo uploaded to Firebase Storage:', logo);
-            } catch (error) {
-                console.error('❌ Error uploading logo:', error);
-                logo = logo_url; // Fallback to base64
-            }
-        }
-        return logo;
-    }
-
-    $("#brand_logo").resizeImg({
-        callback: function (base64str) {
-            var val = $('#brand_logo').val().toLowerCase();
-            var ext = val.split('.')[1];
-            var filename = $('#brand_logo').val().replace(/C:\\fakepath\\/i, '')
-            var timestamp = Number(new Date());
-            var filename = filename.split('.')[0] + "_" + timestamp + '.' + ext;
-
-            var logo_html = '<span class="image-item" id="logo_1"><span class="remove-btn" data-id="1" data-img="' + base64str + '"><i class="fa fa-remove"></i></span><img class="rounded" width="50px" id="" height="auto" src="' + base64str + '"></span>'
-            $(".brand_logo_preview").append(logo_html);
-            logo_url = base64str;
-            $("#brand_logo").val('');
-        }
-    });
-
-    $(document).on("click", ".remove-btn", function () {
-        var id = $(this).attr('data-id');
-        var logo_remove = $(this).attr('data-img');
-        $("#logo_" + id).remove();
-        logo_url = '';
+            });
+        });
     });
 </script>
 @endsection

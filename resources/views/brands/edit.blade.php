@@ -92,40 +92,20 @@
 @section('scripts')
     <script>
         var id = "<?php echo $id;?>";
-        var database = firebase.firestore();
-        var ref = database.collection('brands').doc(id);
-        var storageRef = firebase.storage().ref('images');
-        var storage = firebase.storage();
-        var logo_url = "";
-        var new_logo_url = "";
-        var logoToDelete = [];
         var placeholderImage = '{{ asset('images/placeholder.png') }}';
 
         $(document).ready(function () {
-            jQuery("#data-table_processing").show();
-
-            ref.get().then(async function (snapshots) {
-                var brand = snapshots.data();
-
-                if (brand.hasOwnProperty('logo_url')) {
-                    logo_url = brand.logo_url;
-                    if (logo_url && logo_url != '') {
-                        $(".brand_logo_preview").append('<span class="image-item" id="logo_1"><span class="remove-btn" data-id="1" data-img="' + logo_url + '" data-status="old"><i class="fa fa-remove"></i></span><img onerror="this.onerror=null;this.src=\'' + placeholderImage + '\'" class="rounded" width="50px" id="" height="auto" src="' + logo_url + '"></span>');
-                    } else {
-                        $(".brand_logo_preview").append('<span class="image-item" id="logo_1"><img class="rounded" style="width:50px" src="' + placeholderImage + '" alt="image">');
-                    }
+            $.get('{{ url('/brands/json') }}/' + id, function(brand){
+                if (brand.logo_url) {
+                    $(".brand_logo_preview").append('<span class="image-item" id="logo_1"><img onerror="this.onerror=null;this.src=\'' + placeholderImage + '\'" class="rounded" width="50px" height="auto" src="' + brand.logo_url + '"></span>');
+                } else {
+                    $(".brand_logo_preview").append('<span class="image-item" id="logo_1"><img class="rounded" style="width:50px" src="' + placeholderImage + '" alt="image">');
                 }
-
                 $(".brand_name").val(brand.name);
                 $(".brand_slug").val(brand.slug);
                 $("#brand_description").val(brand.description);
-
-                if (brand.status) {
-                    $(".brand_status").prop('checked', true);
-                }
-
-                jQuery("#data-table_processing").hide();
-            })
+                if (brand.status) { $(".brand_status").prop('checked', true); }
+            });
 
             // Auto-generate slug from name
             $('.brand_name').on('input', function () {
@@ -138,183 +118,42 @@
                 $('.brand_slug').val(slug);
             });
 
-            $(".edit-form-btn").click(async function () {
-                var name = $(".brand_name").val();
-                var slug = $(".brand_slug").val();
-                var description = $("#brand_description").val();
-                var status = $(".brand_status").is(":checked");
-
-                // Enhanced validation
-                if (name == '') {
-                    $(".error_top").show();
-                    $(".error_top").html("");
-                    $(".error_top").append("<p>{{trans('lang.enter_brand_name_error')}}</p>");
-                    window.scrollTo(0, 0);
-                    return;
-                } else if (description == '') {
-                    $(".error_top").show();
-                    $(".error_top").html("");
-                    $(".error_top").append("<p>{{trans('lang.enter_brand_description_error')}}</p>");
-                    window.scrollTo(0, 0);
-                    return;
-                } else if (name.length > 255) {
-                    $(".error_top").show();
-                    $(".error_top").html("");
-                    $(".error_top").append("<p>Brand name must be 255 characters or less.</p>");
-                    window.scrollTo(0, 0);
-                    return;
-                } else {
-                    $(".error_top").hide();
-
-                    // Check for duplicate brand names (excluding current brand)
-                    jQuery("#data-table_processing").show();
-                    const existingBrands = await database.collection('brands')
-                        .where('name', '==', name.trim())
-                        .get();
-
-                    let duplicateFound = false;
-                    existingBrands.forEach(doc => {
-                        if (doc.id !== id) { // Exclude current brand
-                            duplicateFound = true;
-                        }
-                    });
-
-                    if (duplicateFound) {
-                        jQuery("#data-table_processing").hide();
-                        $(".error_top").show();
-                        $(".error_top").html("");
-                        $(".error_top").append("<p>A brand with this name already exists. Please choose a different name.</p>");
-                        window.scrollTo(0, 0);
-                        return;
-                    }
-
-                    await storeLogoData().then(async (logo) => {
-                        if (logo) {
-                            new_logo_url = logo;
-                        } else {
-                            new_logo_url = logo_url;
-                        }
-
-                        database.collection('brands').doc(id).update({
-                            'name': name,
-                            'slug': slug || name.toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').trim('-'),
-                            'description': description,
-                            'logo_url': new_logo_url,
-                            'status': status,
-                            'updated_at': firebase.firestore.FieldValue.serverTimestamp()
-                        }).then(async function (result) {
-                            console.log('✅ Brand updated successfully, now logging activity...');
-                            try {
-                                if (typeof logActivity === 'function') {
-                                    console.log('🔍 Calling logActivity for brand update...');
-                                    await logActivity('brands', 'updated', 'Updated brand: ' + name);
-                                    console.log('✅ Activity logging completed successfully');
-                                } else {
-                                    console.error('❌ logActivity function is not available');
-                                }
-                            } catch (error) {
-                                console.error('❌ Error calling logActivity:', error);
-                            }
-                            window.location.href = '{{ route("brands") }}';
-                        });
-                    }).catch(err => {
-                        jQuery("#data-table_processing").hide();
-                        $(".error_top").show();
-                        $(".error_top").html("");
-                        $(".error_top").append("<p>" + err + "</p>");
-                        window.scrollTo(0, 0);
-                    });
+            $(".edit-form-btn").click(function(){
+                const name = $(".brand_name").val();
+                const description = $("#brand_description").val();
+                if(!name){
+                    $(".error_top").show().html('<p>{{trans('lang.enter_brand_name_error')}}</p>');
+                    window.scrollTo(0,0); return;
                 }
+                if(!description){
+                    $(".error_top").show().html('<p>{{trans('lang.enter_brand_description_error')}}</p>');
+                    window.scrollTo(0,0); return;
+                }
+                $(".error_top").hide();
+                let fd = new FormData();
+                fd.append('name', name);
+                fd.append('slug', $(".brand_slug").val());
+                fd.append('description', description);
+                fd.append('status', $(".brand_status").is(':checked') ? 1 : 0);
+                const file = document.getElementById('brand_logo').files[0];
+                if(file){ fd.append('logo', file); }
+                fd.append('_token','{{ csrf_token() }}');
+                fd.append('_method','PUT');
+                $.ajax({
+                    url: '{{ url('/brands') }}/' + id,
+                    method: 'POST',
+                    data: fd,
+                    processData: false,
+                    contentType: false,
+                    success: function(){ window.location.href = '{{ route('brands') }}'; },
+                    error: function(xhr){
+                        const msg = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Error updating brand';
+                        $(".error_top").show().html('<p>'+msg+'</p>');
+                        window.scrollTo(0,0);
+                    }
+                });
             })
         })
 
-        async function storeLogoData() {
-            var logo = '';
-
-            // Delete old logos if marked for deletion
-            if (logoToDelete.length > 0) {
-                await Promise.all(logoToDelete.map(async (delImage) => {
-                    try {
-                        imageBucket = delImage.bucket;
-                        var envBucket = "<?php echo env('FIREBASE_STORAGE_BUCKET'); ?>";
-                        if (imageBucket == envBucket) {
-                            await delImage.delete().then(() => {
-                                console.log("✅ Old logo deleted successfully!")
-                            }).catch((error) => {
-                                console.log("⚠️ Error deleting old logo:", error);
-                            });
-                        } else {
-                            console.log('⚠️ Bucket not matched, skipping delete');
-                        }
-                    } catch (error) {
-                        console.error('❌ Error in logo deletion:', error);
-                    }
-                }));
-            }
-
-            // Handle new logo upload
-            if (new_logo_url && new_logo_url != '') {
-                try {
-                    // Check if it's a base64 string (new upload) or already a URL
-                    if (new_logo_url.startsWith('data:image/')) {
-                        // Upload new base64 image to Firebase Storage
-                        var filename = 'brand_logo_' + Date.now() + '.jpg';
-                        var storageRef = firebase.storage().ref('images/brands/' + filename);
-
-                        // Convert base64 to blob
-                        var base64Data = new_logo_url.replace(/^data:image\/[a-z]+;base64,/, "");
-                        var uploadTask = await storageRef.putString(base64Data, 'base64', {
-                            contentType: 'image/jpeg'
-                        });
-
-                        // Get download URL
-                        logo = await uploadTask.ref.getDownloadURL();
-                        console.log('✅ New logo uploaded to Firebase Storage:', logo);
-                    } else {
-                        // Already a URL, use as-is
-                        logo = new_logo_url;
-                        console.log('ℹ️ Using existing logo URL:', logo);
-                    }
-                } catch (error) {
-                    console.error('❌ Error uploading new logo:', error);
-                    logo = new_logo_url; // Fallback
-                }
-            } else if (logo_url && logo_url != '') {
-                // Use existing logo
-                logo = logo_url;
-                console.log('ℹ️ Using existing logo:', logo);
-            }
-
-            return logo;
-        }
-
-        $("#brand_logo").resizeImg({
-            callback: function (base64str) {
-                var val = $('#brand_logo').val().toLowerCase();
-                var ext = val.split('.')[1];
-                var filename = $('#brand_logo').val().replace(/C:\\fakepath\\/i, '')
-                var timestamp = Number(new Date());
-                var filename = filename.split('.')[0] + "_" + timestamp + '.' + ext;
-
-                var logo_html = '<span class="image-item" id="logo_1"><span class="remove-btn" data-id="1" data-img="' + base64str + '" data-status="new"><i class="fa fa-remove"></i></span><img class="rounded" width="50px" id="" height="auto" src="' + base64str + '"></span>'
-                $(".brand_logo_preview").append(logo_html);
-                new_logo_url = base64str;
-                $("#brand_logo").val('');
-            }
-        });
-
-        $(document).on("click", ".remove-btn", function () {
-            var id = $(this).attr('data-id');
-            var logo_remove = $(this).attr('data-img');
-            var status = $(this).attr('data-status');
-
-            if (status == "old") {
-                logoToDelete.push(firebase.storage().refFromURL(logo_remove));
-            }
-
-            $("#logo_" + id).remove();
-            logo_url = '';
-            new_logo_url = '';
-        });
     </script>
 @endsection

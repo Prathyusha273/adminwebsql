@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use PhpOffice\PhpSpreadsheet\IOFactory;
-use Google\Cloud\Firestore\FirestoreClient;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use App\Models\Brand;
 
 class BrandController extends Controller
 {
@@ -39,44 +41,38 @@ class BrandController extends Controller
         ]);
 
         try {
-            $firestore = new FirestoreClient([
-                'projectId' => config('firestore.project_id'),
-                'keyFilePath' => config('firestore.credentials'),
-            ]);
+            $existing = DB::table('brands')->where('name', trim($request->name))->exists();
+            if ($existing) {
+                return response()->json(['success' => false, 'message' => 'Brand name already exists'], 422);
+            }
 
-            $collection = $firestore->collection('brands');
-
-            // Generate slug if not provided
             $slug = $request->slug;
             if (empty($slug)) {
                 $slug = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $request->name)));
             }
 
-            // Handle logo upload
             $logoUrl = '';
             if ($request->hasFile('logo')) {
                 $logoUrl = $this->uploadLogo($request->file('logo'));
             }
 
-            $brandData = [
+            $id = (string) Str::uuid();
+            $now = now()->format('Y-m-d H:i:s');
+            DB::table('brands')->insert([
+                'id' => $id,
                 'name' => $request->name,
                 'slug' => $slug,
                 'description' => $request->description ?? '',
-                'status' => (bool) $request->status,
+                'status' => $request->boolean('status') ? 1 : 0,
                 'logo_url' => $logoUrl,
-                'created_at' => new \Google\Cloud\Core\Timestamp(new \DateTime()),
-                'updated_at' => new \Google\Cloud\Core\Timestamp(new \DateTime()),
-            ];
-
-            // Create document with auto-generated ID
-            $docRef = $collection->add($brandData);
-
-            // Set the internal 'id' field to match the Firestore document ID
-            $docRef->set(['id' => $docRef->id()], ['merge' => true]);
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Brand created successfully!'
+                'message' => 'Brand created successfully!',
+                'id' => $id,
             ]);
 
         } catch (\Exception $e) {
@@ -98,45 +94,38 @@ class BrandController extends Controller
         ]);
 
         try {
-            $firestore = new FirestoreClient([
-                'projectId' => config('firestore.project_id'),
-                'keyFilePath' => config('firestore.credentials'),
-            ]);
-
-            $document = $firestore->collection('brands')->document($id);
-            $snapshot = $document->snapshot();
-
-            if (!$snapshot->exists()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Brand not found'
-                ], 404);
+            $exists = DB::table('brands')->where('id', $id)->exists();
+            if (!$exists) {
+                return response()->json(['success' => false, 'message' => 'Brand not found'], 404);
             }
 
-            $currentData = $snapshot->data();
+            $duplicate = DB::table('brands')
+                ->where('name', trim($request->name))
+                ->where('id', '!=', $id)
+                ->exists();
+            if ($duplicate) {
+                return response()->json(['success' => false, 'message' => 'Brand name already exists'], 422);
+            }
 
-            // Generate slug if not provided
             $slug = $request->slug;
             if (empty($slug)) {
                 $slug = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $request->name)));
             }
 
-            // Handle logo upload
-            $logoUrl = $currentData['logo_url'] ?? '';
+            $row = DB::table('brands')->where('id', $id)->first();
+            $logoUrl = $row->logo_url ?? '';
             if ($request->hasFile('logo')) {
                 $logoUrl = $this->uploadLogo($request->file('logo'));
             }
 
-            $updateData = [
+            DB::table('brands')->where('id', $id)->update([
                 'name' => $request->name,
                 'slug' => $slug,
                 'description' => $request->description ?? '',
-                'status' => (bool) $request->status,
+                'status' => $request->boolean('status') ? 1 : 0,
                 'logo_url' => $logoUrl,
-                'updated_at' => new \Google\Cloud\Core\Timestamp(new \DateTime()),
-            ];
-
-            $document->update($updateData);
+                'updated_at' => now()->format('Y-m-d H:i:s'),
+            ]);
 
             return response()->json([
                 'success' => true,
@@ -154,24 +143,11 @@ class BrandController extends Controller
     public function delete($id)
     {
         try {
-            $firestore = new FirestoreClient([
-                'projectId' => config('firestore.project_id'),
-                'keyFilePath' => config('firestore.credentials'),
-            ]);
-
-            // Check if brand is being used by any items
-            $itemsQuery = $firestore->collection('mart_items')
-                ->where('brand_id', '==', $id)
-                ->limit(1);
-            
-            $items = $itemsQuery->documents();
-            if (!$items->isEmpty()) {
+            $inUse = DB::table('mart_items')->where('brand_id', $id)->exists();
+            if ($inUse) {
                 return redirect()->route('brands')->with('error', 'Cannot delete brand. It is being used by one or more items.');
             }
-
-            // Delete the brand document
-            $firestore->collection('brands')->document($id)->delete();
-
+            DB::table('brands')->where('id', $id)->delete();
             return redirect()->route('brands')->with('success', 'Brand deleted successfully!');
         } catch (\Exception $e) {
             return redirect()->route('brands')->with('error', 'Error deleting brand: ' . $e->getMessage());
@@ -181,69 +157,61 @@ class BrandController extends Controller
     public function getData(Request $request)
     {
         try {
-            $firestore = new FirestoreClient([
-                'projectId' => config('firestore.project_id'),
-                'keyFilePath' => config('firestore.credentials'),
-            ]);
+            $start = (int) ($request->input('start', 0));
+            $length = (int) ($request->input('length', 10));
+            $draw = (int) ($request->input('draw', 1));
+            $search = strtolower((string) data_get($request->input('search'), 'value', ''));
+            $withDelete = (bool) $request->boolean('withDelete');
 
-            $collection = $firestore->collection('brands');
-            $query = $collection->orderBy('created_at', 'DESC');
-
-            // Apply search filter
-            if ($request->has('search') && !empty($request->search['value'])) {
-                $searchValue = $request->search['value'];
-                // Note: Firestore doesn't support full-text search, so we'll filter in PHP
+            $q = DB::table('brands');
+            if ($search !== '') {
+                $q->where(function($qq) use ($search){
+                    $qq->where('name','like','%'.$search.'%')
+                       ->orWhere('slug','like','%'.$search.'%')
+                       ->orWhere('description','like','%'.$search.'%');
+                });
             }
 
-            $documents = $query->documents();
+            $total = (clone $q)->count();
+            $rows = $q->orderBy('name','asc')->offset($start)->limit($length)->get();
+
+            $placeholder = asset('images/placeholder.png');
             $data = [];
+            foreach ($rows as $r) {
+                $editUrl = route('brands.edit', $r->id);
+                $nameHtml = '<a href="'.$editUrl.'">'.e($r->name ?: '').'</a>';
+                $imgSrc = $r->logo_url ?: $placeholder;
+                $imgHtml = '<img alt="" onerror="this.onerror=null;this.src=\''.$placeholder.'\'" style="width:70px;height:70px;" src="'.$imgSrc.'">';
+                $toggleHtml = '<label class="switch"><input type="checkbox" '.($r->status ? 'checked' : '').' data-id="'.$r->id.'" name="isSwitch"><span class="slider round"></span></label>';
+                $actions = '<span class="action-btn">'
+                    .(in_array('brands.edit', json_decode(@session('user_permissions'), true) ?? []) ? '<a href="'.$editUrl.'"><i class="mdi mdi-lead-pencil" title="Edit"></i></a>' : '')
+                    .(in_array('brands.delete', json_decode(@session('user_permissions'), true) ?? []) ? ' <a href="javascript:void(0)" class="brand-delete" data-id="'.$r->id.'"><i class="mdi mdi-delete"></i></a>' : '')
+                    .'</span>';
 
-            foreach ($documents as $document) {
-                if ($document->exists()) {
-                    $docData = $document->data();
-                    
-                    // Apply search filter in PHP (since Firestore doesn't support full-text search)
-                    if ($request->has('search') && !empty($request->search['value'])) {
-                        $searchValue = strtolower($request->search['value']);
-                        $searchableFields = [
-                            strtolower($docData['name'] ?? ''),
-                            strtolower($docData['slug'] ?? ''),
-                            strtolower($docData['description'] ?? '')
-                        ];
-                        
-                        if (!str_contains(implode(' ', $searchableFields), $searchValue)) {
-                            continue;
-                        }
-                    }
-
-                    $data[] = [
-                        'id' => $document->id(),
-                        'name' => $docData['name'] ?? '',
-                        'slug' => $docData['slug'] ?? '',
-                        'logo_url' => $docData['logo_url'] ?? '',
-                        'description' => $docData['description'] ?? '',
-                        'status' => $docData['status'] ?? false,
-                        'created_at' => isset($docData['created_at']) ? $docData['created_at']->format('Y-m-d H:i:s') : '',
-                    ];
+                $row = [];
+                if ($withDelete) {
+                    $checkbox = '<td class="delete-all"><input type="checkbox" id="is_open_'.$r->id.'" class="is_open" dataId="'.$r->id.'"><label class="col-3 control-label" for="is_open_'.$r->id.'"></label></td>';
+                    $row[] = $checkbox;
                 }
+                $row[] = $nameHtml;
+                $row[] = e($r->slug ?: '-');
+                $row[] = $imgHtml;
+                $row[] = e($r->description ?: '-');
+                $row[] = $toggleHtml;
+                $row[] = $actions;
+                $data[] = $row;
             }
-
-            // Apply pagination
-            $start = $request->start ?? 0;
-            $length = $request->length ?? 10;
-            $totalRecords = count($data);
-            $filteredData = array_slice($data, $start, $length);
 
             return response()->json([
-                'draw' => intval($request->draw),
-                'recordsTotal' => $totalRecords,
-                'recordsFiltered' => $totalRecords,
-                'data' => $filteredData
+                'draw' => $draw,
+                'recordsTotal' => $total,
+                'recordsFiltered' => $total,
+                'data' => $data,
             ]);
 
         } catch (\Exception $e) {
             return response()->json([
-                'draw' => intval($request->draw),
+                'draw' => (int) $request->input('draw', 1),
                 'recordsTotal' => 0,
                 'recordsFiltered' => 0,
                 'data' => [],
@@ -530,6 +498,42 @@ class BrandController extends Controller
         }
     }
     
+    public function json($id)
+    {
+        $row = DB::table('brands')->where('id', $id)->first();
+        if (!$row) return response()->json(['error' => 'Not found'], 404);
+        return response()->json($row);
+    }
+
+    public function toggle($id)
+    {
+        $row = DB::table('brands')->where('id', $id)->first();
+        if (!$row) return response()->json(['success' => false], 404);
+        $new = $row->status ? 0 : 1;
+        DB::table('brands')->where('id', $id)->update(['status' => $new, 'updated_at' => now()->format('Y-m-d H:i:s')]);
+        return response()->json(['success' => true, 'status' => $new]);
+    }
+
+    public function destroy($id)
+    {
+        $inUse = DB::table('mart_items')->where('brand_id', $id)->exists();
+        if ($inUse) return response()->json(['success' => false, 'message' => 'Brand is used by items'], 422);
+        DB::table('brands')->where('id', $id)->delete();
+        return response()->json(['success' => true]);
+    }
+
+    public function bulkDelete(Request $request)
+    {
+        $ids = (array) $request->input('ids', []);
+        if (empty($ids)) return response()->json(['success' => false, 'message' => 'No brands selected'], 422);
+        // Exclude brands that are in use
+        $inUseIds = DB::table('mart_items')->whereIn('brand_id', $ids)->distinct()->pluck('brand_id')->all();
+        $deletable = array_values(array_diff($ids, $inUseIds));
+        if (!empty($deletable)) {
+            DB::table('brands')->whereIn('id', $deletable)->delete();
+        }
+        return response()->json(['success' => true, 'deleted' => count($deletable), 'blocked' => $inUseIds]);
+    }
     /**
      * Check if a row is completely empty
      */
