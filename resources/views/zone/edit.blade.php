@@ -191,96 +191,28 @@
     let deleteButton ,dragMap;
     let selectedPolygon = null;
     var mapType = 'ONLINE';
-    var googleMapKey = '';
-
-    // Initialize zone edit map with proper async loading
-    async function initializeZoneEditMap() {
-        console.log('🗺️ Initializing Zone Edit Map...');
-
-        // Wait for settings to be loaded from settings-loader.js
-        let attempts = 0;
-        while (typeof window.mapType === 'undefined' && attempts < 50) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-            attempts++;
-        }
-
-        // Get map type from global settings (set by settings-loader.js)
-        if (window.mapType) {
-            mapType = window.mapType;
-            console.log('✅ Using map type from global settings:', mapType);
-        } else {
-            console.warn('⚠️ Global settings not loaded, using default ONLINE mode');
-            mapType = 'ONLINE';
-        }
-
-        // Get Google Maps key from global settings (set by settings-loader.js)
-        if (window.googleMapKey) {
-            googleMapKey = window.googleMapKey;
-            console.log('✅ Using Google Maps key from global settings');
-        } else {
-            console.warn('⚠️ Google Maps key not found, using fallback');
-            googleMapKey = 'AIzaSyAp4vhbe3AWgIj2lpS52M_kjgBKr-u13Xo';
-        }
-
-        console.log('✅ Zone Edit - Map Type:', mapType);
-
-        // Load map library if needed
-        if (mapType == "ONLINE") {
-            await loadGoogleMapsAPI();
-        } else {
-            // Leaflet is already loaded in layout, just wait a bit to ensure it's ready
-            await new Promise(resolve => setTimeout(resolve, 500));
-            console.log('✅ Using OpenStreetMap (Leaflet)');
-        }
-
-        // Now initialize the map
-        try {
+    
+    // SIMPLE DIRECT APPROACH - Same as create page
+    console.log('🚀🚀🚀 ZONE EDIT PAGE LOADING:', new Date().toISOString());
+    
+    // FORCE LOAD Google Maps with working API key
+    if (typeof google === 'undefined') {
+        console.log('⚡ Loading Google Maps for EDIT page...');
+        var editScript = document.createElement('script');
+        editScript.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyCKCRzqaR1-uzbnEmB-JqVkbUKNGOJHv34&libraries=places,drawing&callback=initZoneEditMap';
+        editScript.async = false;
+        editScript.defer = false;
+        document.head.appendChild(editScript);
+        console.log('✅ Script tag added');
+    }
+    
+    // Callback function for Google Maps
+    window.initZoneEditMap = function() {
+        console.log('✅✅✅ Google Maps callback fired for EDIT!');
+        setTimeout(function() {
             initMap();
-        } catch (error) {
-            console.error('❌ Error initializing map:', error);
-            $('#map-loading').html(`
-                <div style="text-align: center; padding: 20px;">
-                    <i class="fa fa-exclamation-triangle" style="font-size: 48px; color: #f44336;"></i>
-                    <p style="margin-top: 15px; color: #666;">Failed to load map</p>
-                    <p style="color: #999; font-size: 14px;">${error.message}</p>
-                    <button onclick="location.reload()" class="btn btn-primary" style="margin-top: 10px;">
-                        <i class="fa fa-refresh"></i> Reload Page
-                    </button>
-                </div>
-            `);
-        }
-    }
-
-    // Load Google Maps API
-    async function loadGoogleMapsAPI() {
-        console.log('📍 Loading Google Maps API...');
-
-        // Check if already loaded
-        if (typeof google !== 'undefined' && typeof google.maps !== 'undefined' && typeof google.maps.drawing !== 'undefined') {
-            console.log('✅ Google Maps already loaded');
-            return;
-        }
-
-        return new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = `https://maps.googleapis.com/maps/api/js?key=${googleMapKey}&libraries=places,drawing`;
-            script.async = true;
-            script.defer = true;
-
-            script.onload = function() {
-                console.log('✅ Google Maps API loaded successfully');
-                resolve();
-            };
-
-            script.onerror = function() {
-                console.error('❌ Failed to load Google Maps API, falling back to OpenStreetMap');
-                mapType = 'OFFLINE';
-                resolve(); // Still resolve to continue with Leaflet
-            };
-
-            document.head.appendChild(script);
-        });
-    }
+        }, 500);
+    };
 
     // Set up button handlers after map type is determined
     function setupButtonHandlers() {
@@ -366,8 +298,9 @@
         alert('Error: Zone data not loaded');
         @endif
 
-        // Initialize map with proper async loading
-        initializeZoneEditMap();
+        // Map will initialize automatically via Google Maps callback
+        console.log('📄 Zone edit page ready - waiting for map callback');
+        
         $(".edit-setting-btn").click(function () {
             var name = $("#name").val();
             var publish = $("#publish").is(":checked");

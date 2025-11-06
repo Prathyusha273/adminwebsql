@@ -175,10 +175,125 @@
 </style>
 @section('scripts')
     <script>
-        $(document).ready(function () {
-            setTimeout(function(){
+        // Declare global variables first
+        var map;
+        var drawingManager;
+        var selectedShape;
+        var selectedKernel;
+        var gmarkers = [];
+        var coordinates = [];
+        var allShapes = [];
+        var sendable_coordinates = [];
+        var shapeColor = "#007cff";
+        var kernelColor = "#000";
+        var default_lat = getCookie('default_latitude');
+        var default_lng = getCookie('default_longitude');
+        var drawnItems;
+        var deleteButton, dragMap;
+        var selectedPolygon = null;
+        var mapType = 'ONLINE';
+        
+        // Load map type from SQL settings instead of Firebase (synchronous)
+        $.ajax({
+            url: '/api/settings/driver',
+            method: 'GET',
+            async: false,
+            success: function(data) {
+                if (data && data.selectedMapType && data.selectedMapType == "osm") {
+                    mapType = "OFFLINE";
+                }
+                console.log('✅ Zone Create - Loaded map type from SQL:', mapType);
+            },
+            error: function() {
+                console.warn('⚠️ Could not load map settings, using default (ONLINE)');
+            }
+        });
+
+        // Wait for Map API (Google Maps or Leaflet) to load before initializing map
+        function waitForGoogleMaps(callback, maxAttempts = 100) {
+            var attempts = 0;
+            var checkInterval = setInterval(function() {
+                attempts++;
+                var isReady = false;
+                
+                // Check if we're in offline mode and Leaflet is loaded
+                if (mapType === "OFFLINE") {
+                    if (typeof L !== 'undefined' && L.map) {
+                        isReady = true;
+                        console.log('✅ Leaflet (OpenStreetMap) API ready');
+                    }
+                } else {
+                    // Check if Google Maps is loaded
+                    if (typeof google !== 'undefined' && google.maps) {
+                        isReady = true;
+                        console.log('✅ Google Maps API ready');
+                    }
+                }
+                
+                if (isReady) {
+                    clearInterval(checkInterval);
+                    console.log('✅ Map API ready, initializing map...');
+                    callback();
+                } else if (attempts >= maxAttempts) {
+                    clearInterval(checkInterval);
+                    console.error('❌ Failed to load map API after ' + (maxAttempts * 100) + 'ms');
+                    console.error('Map Type:', mapType);
+                    console.error('Google defined:', typeof google !== 'undefined');
+                    console.error('Leaflet defined:', typeof L !== 'undefined');
+                    console.error('🔍 Debug Info:');
+                    console.error('   - Check Network tab for failed requests');
+                    console.error('   - Look for console errors about API key');
+                    console.error('   - Verify Maps JavaScript API is enabled');
+                    alert('Failed to load map. Please check console for details or refresh the page.');
+                } else if (attempts % 20 === 0) {
+                    // Log every 2 seconds
+                    console.log('⏳ Waiting for ' + mapType + ' map API to load... Attempt ' + attempts + '/100');
+                }
+            }, 100);
+        }
+
+        // DIRECT APPROACH: Load Google Maps immediately without waiting for layout
+        console.log('🚀🚀🚀 ZONE CREATE PAGE LOADING - TIMESTAMP:', new Date().toISOString());
+        console.log('📊 Map Type:', mapType);
+        console.log('🔍 Google exists:', typeof google !== 'undefined');
+        
+        // FORCE LOAD Google Maps with your working API key
+        if (typeof google === 'undefined') {
+            console.log('⚡ FORCE LOADING Google Maps NOW...');
+            var forceScript = document.createElement('script');
+            forceScript.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyCKCRzqaR1-uzbnEmB-JqVkbUKNGOJHv34&libraries=places,drawing&callback=initZoneMap';
+            forceScript.async = false; // Load synchronously
+            forceScript.defer = false;
+            document.head.appendChild(forceScript);
+            console.log('✅ Script tag added to head');
+        }
+        
+        // Callback function for Google Maps
+        window.initZoneMap = function() {
+            console.log('✅✅✅ Google Maps callback fired!');
+            console.log('🗺️ Initializing map now...');
+            setTimeout(function() {
                 initMap();
-            },2500);
+            }, 500);
+        };
+
+        $(document).ready(function () {
+            console.log('📄 Document ready event fired');
+            
+            // Fallback if callback doesn't fire
+            setTimeout(function() {
+                if (typeof google !== 'undefined' && google.maps) {
+                    console.log('✅ Google Maps detected via fallback check');
+                    if (!document.getElementById('map').hasChildNodes()) {
+                        console.log('🔧 Map not initialized yet, initializing now...');
+                        initMap();
+                    }
+                } else {
+                    console.error('❌ Google Maps still not loaded after 5 seconds');
+                    console.error('🌐 Check your internet connection');
+                    console.error('🔑 Verify API key at: https://console.cloud.google.com/');
+                }
+            }, 5000);
             $(".save-setting-btn").click(function () {
                 var name = $("#name").val();
                 var publish = $("#publish").is(":checked");
@@ -354,64 +469,34 @@
                 }
             });
         });
-        var map;
-        let polygon;
-        let polygonPath;
-        var drawingManager;
-        var selectedShape;
-        var selectedKernel;
-        var gmarkers = [];
-        var coordinates = [];
-        var allShapes = [];
-        var sendable_coordinates = [];
-        var shapeColor = "#007cff";
-        var kernelColor = "#000";
-        var default_lat = getCookie('default_latitude');
-        var default_lng = getCookie('default_longitude');
-        let drawnItems;
-        let deleteButton , dragMap;
-        let selectedPolygon = null;
-        var mapType = 'ONLINE';
         
-        // Load map type from SQL settings instead of Firebase
-        $.ajax({
-            url: '/api/settings/driver',
-            method: 'GET',
-            async: false,
-            success: function(data) {
-                if (data && data.selectedMapType && data.selectedMapType == "osm") {
-                    mapType = "OFFLINE";
-                }
-                console.log('✅ Zone Create - Loaded map type from SQL:', mapType);
-            },
-            error: function() {
-                console.warn('⚠️ Could not load map settings, using default (ONLINE)');
-            }
-        });
-        
-        var onclick='',polygon='',deletearea='';
+        // Initialize function variables based on map type
+        var onclickFunc, polygonFunc, deleteareaFunc;
         if(mapType == "OFFLINE"){
-            onclick = function() {
+            onclickFunc = function() {
                 console.log("Offline mode, no drawing available.");
             };
-            polygon = function() {
-                enablePolygonDrawing(map) ;
+            polygonFunc = function() {
+                enablePolygonDrawing(map);
+            };
+            deleteareaFunc = function() {
+                deleteSelectedPolygon();
             };
         }else
         {
-            onclick = function() {
+            onclickFunc = function() {
                 drawingManager.setDrawingMode(null);
             };
-            polygon = function() {
+            polygonFunc = function() {
                 drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
             };
-            deletearea=function() {
+            deleteareaFunc = function() {
                 clearMap();
             };
         }
-        document.getElementById("select-button").onclick = onclick;
-        document.getElementById("add-button").onclick = polygon;
-        document.getElementById("delete-all-button").onclick = deletearea;
+        document.getElementById("select-button").onclick = onclickFunc;
+        document.getElementById("add-button").onclick = polygonFunc;
+        document.getElementById("delete-all-button").onclick = deleteareaFunc;
         function setMapOnAll(map) {
             for (var i = 0; i < gmarkers.length; i++) {
                 gmarkers[i].setMap(map);

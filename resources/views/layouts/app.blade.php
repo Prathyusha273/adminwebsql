@@ -821,37 +821,121 @@
 
 
     var mapType = 'ONLINE';
-    database.collection('settings').doc('DriverNearBy').get().then(async function (snapshots) {
-        var data = snapshots.data();
-        if (data && data.selectedMapType && data.selectedMapType == "osm") {
-            mapType = "OFFLINE"
+    var googleMapKey = '';
+
+    // Load map type from SQL database instead of Firebase
+    $.ajax({
+        url: '/api/settings/driver',
+        method: 'GET',
+        async: false,
+        success: function(data) {
+            if (data && data.selectedMapType && data.selectedMapType == "osm") {
+                mapType = "OFFLINE";
+            }
+            console.log('✅ Loaded map type from SQL:', mapType);
+        },
+        error: function() {
+            console.warn('⚠️ Could not load map settings, using default (ONLINE)');
         }
     });
 
-    async function loadGoogleMapsScript() {
-        var googleMapKeySnapshotsHeader = await database.collection('settings').doc("googleMapKey").get();
-        var placeholderImageHeaderData = googleMapKeySnapshotsHeader.data();
-        googleMapKey = placeholderImageHeaderData.key;
-        const script = document.createElement('script');
-        if (mapType == "OFFLINE" ){
-            script.src = "https://unpkg.com/leaflet@1.7.1/dist/leaflet.js";
-            script.src = "https://unpkg.com/leaflet-draw/dist/leaflet.draw.js";
-            script.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet-editable/0.7.3/leaflet.editable.min.js";
-            script.src = "https://unpkg.com/leaflet-draw@0.4.14/dist/leaflet.draw-src.js";
-            script.src = "https://unpkg.com/leaflet-ajax/dist/leaflet.ajax.min.js";
-            script.src = "https://unpkg.com/leaflet-geojson-layer/src/leaflet.geojson.js";
-            script.src = "https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js";
-
-        }else{
-            script.src = "https://maps.googleapis.com/maps/api/js?key=" + googleMapKey + "&libraries=places,drawing";
-        }
-        script.onload = function () {
-            navigator.geolocation.getCurrentPosition(GeolocationSuccessCallback,GeolocationErrorCallback);
-            if(typeof window['InitializeGodsEyeMap'] === 'function') {
-                InitializeGodsEyeMap();
+    // Load Google Maps API key from SQL database instead of Firebase
+    $.ajax({
+        url: '/api/settings/googleMapKey',
+        method: 'GET',
+        async: false,
+        success: function(data) {
+            if (data && data.googleMapKey) {
+                googleMapKey = data.googleMapKey;
+                console.log('✅ Loaded Google Maps API key from SQL');
+                console.log('🔑 API Key length:', googleMapKey.length, 'chars');
+            } else {
+                console.error('❌ Google Maps API key is EMPTY in database!');
+                console.error('📝 Please add your API key in: Settings → App Settings → Global Settings');
             }
-        };
-        document.head.appendChild(script);
+        },
+        error: function(xhr, status, error) {
+            console.error('⚠️ Could not load Google Maps API key:', error);
+        }
+    });
+
+    function loadGoogleMapsScript() {
+        const script = document.createElement('script');
+        if (mapType == "OFFLINE") {
+            // Load Leaflet scripts for offline maps
+            const leafletScripts = [
+                "https://unpkg.com/leaflet@1.7.1/dist/leaflet.js",
+                "https://unpkg.com/leaflet-draw/dist/leaflet.draw.js",
+                "https://cdnjs.cloudflare.com/ajax/libs/leaflet-editable/0.7.3/leaflet.editable.min.js",
+                "https://unpkg.com/leaflet-draw@0.4.14/dist/leaflet.draw-src.js",
+                "https://unpkg.com/leaflet-ajax/dist/leaflet.ajax.min.js",
+                "https://unpkg.com/leaflet-geojson-layer/src/leaflet.geojson.js",
+                "https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"
+            ];
+            
+            // Load scripts sequentially
+            let loadedScripts = 0;
+            leafletScripts.forEach((src, index) => {
+                const s = document.createElement('script');
+                s.src = src;
+                s.onload = function() {
+                    loadedScripts++;
+                    if (loadedScripts === leafletScripts.length) {
+                        navigator.geolocation.getCurrentPosition(GeolocationSuccessCallback, GeolocationErrorCallback);
+                        if(typeof window['InitializeGodsEyeMap'] === 'function') {
+                            InitializeGodsEyeMap();
+                        }
+                    }
+                };
+                document.head.appendChild(s);
+            });
+        } else {
+            // Load Google Maps for online maps
+            if (googleMapKey && googleMapKey.trim() !== '') {
+                console.log('🌐 Loading Google Maps API...');
+                var mapsUrl = "https://maps.googleapis.com/maps/api/js?key=" + googleMapKey + "&libraries=places,drawing";
+                console.log('📍 Maps URL:', mapsUrl);
+                
+                script.src = mapsUrl;
+                script.async = true;
+                script.defer = true;
+                
+                script.onload = function () {
+                    console.log('✅ Google Maps API script loaded successfully');
+                    if (typeof google !== 'undefined' && google.maps) {
+                        console.log('✅ Google Maps object is available');
+                    } else {
+                        console.error('❌ Script loaded but google object not available');
+                    }
+                    navigator.geolocation.getCurrentPosition(GeolocationSuccessCallback, GeolocationErrorCallback);
+                    if(typeof window['InitializeGodsEyeMap'] === 'function') {
+                        InitializeGodsEyeMap();
+                    }
+                };
+                
+                script.onerror = function(e) {
+                    console.error('❌ Failed to load Google Maps API script');
+                    console.error('Error event:', e);
+                    console.error('📋 Possible causes:');
+                    console.error('   1. Invalid API key');
+                    console.error('   2. API key restrictions blocking localhost');
+                    console.error('   3. Maps JavaScript API not enabled');
+                    console.error('   4. Network/firewall blocking Google Maps');
+                    console.error('💡 Check your API key at: https://console.cloud.google.com/');
+                    console.error('💡 Enable Maps JavaScript API in Google Cloud Console');
+                };
+                
+                document.head.appendChild(script);
+                console.log('📝 Script tag added to DOM');
+            } else {
+                console.error('❌ Google Maps API key is MISSING or EMPTY!');
+                console.error('📝 To fix this:');
+                console.error('   1. Go to: Settings → App Settings → Global Settings');
+                console.error('   2. Add your Google Maps API key');
+                console.error('   3. Or get a FREE key at: https://console.cloud.google.com/');
+                console.error('📖 See ADD_GOOGLE_MAPS_KEY.md for step-by-step guide');
+            }
+        }
     }
 
     const GeolocationSuccessCallback = (position) => {
@@ -869,6 +953,7 @@
         setCookie('default_longitude','72.571365', 365);
     };
 
+    // Load Google Maps script after settings are loaded
     loadGoogleMapsScript();
 
     async function sendNotification(fcmToken = '', title, body) {

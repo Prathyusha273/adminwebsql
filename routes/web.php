@@ -259,6 +259,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/api/settings/restaurant', [App\Http\Controllers\Api\SettingsApiController::class, 'getRestaurantSettings'])->name('api.settings.restaurant');
     Route::get('/api/settings/AdminCommission', [App\Http\Controllers\Api\SettingsApiController::class, 'getAdminCommission'])->name('api.settings.admin-commission');
     Route::get('/api/settings/driver', [App\Http\Controllers\Api\SettingsApiController::class, 'getDriverSettings'])->name('api.settings.driver');
+    Route::get('/api/settings/googleMapKey', [App\Http\Controllers\Api\SettingsApiController::class, 'getMapSettings'])->name('api.settings.googleMapKey');
 });
 
 Route::middleware(['permission:orders,orders'])->group(function () {
