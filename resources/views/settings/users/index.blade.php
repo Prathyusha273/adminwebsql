@@ -198,10 +198,12 @@
 
         // Load zones from SQL
         var loadZonesPromise = new Promise(function(resolve){
+            console.log('🔄 Loading zones from SQL...');
             $.ajax({
                 url: '{{ route("zone.data") }}',
                 method: 'GET',
                 success: function(response) {
+                    console.log('📊 Zones API response:', response);
                     if (response.data && response.data.length > 0) {
                         response.data.forEach(function(zone) {
                             zoneIdToName[zone.id] = zone.name;
@@ -210,13 +212,16 @@
                                 $('<option></option>').val(zone.id).text(zone.name)
                             );
                         });
+                        console.log('✅ Zones loaded from SQL (' + response.data.length + ' zones):', zoneIdToName);
+                    } else {
+                        console.warn('⚠️ No zones found in database');
                     }
                     zonesLoaded = true;
-                    console.log('✅ Zones loaded from SQL:', zoneIdToName);
                     resolve(zoneIdToName);
                 },
                 error: function(xhr, status, error) {
                     console.error('❌ Error loading zones:', error);
+                    console.error('Response:', xhr.responseText);
                     zonesLoaded = true;
                     resolve(zoneIdToName);
                 }
@@ -354,16 +359,41 @@
                                 role: 'customer'
                             }
                         }).done(function (resp) {
+                            console.log('📊 Users API response:', resp);
                             const items = resp.data || [];
                             const total = (resp.meta && resp.meta.total) ? resp.meta.total : items.length;
                             $('.total_count').text(total);
+                            console.log('👥 Loading ' + items.length + ' users');
                             let records = [];
                             items.forEach(function (childData) {
+                                console.log('User data:', {
+                                    id: childData.id,
+                                    name: childData.fullName,
+                                    zoneId: childData.zoneId,
+                                    zoneIdType: typeof childData.zoneId
+                                });
                                 var id = childData.id;
                                 var route1 = '{{route("users.edit",":id")}}'.replace(':id', id);
                                 var user_view = '{{route("users.view",":id")}}'.replace(':id', id);
                                 var vendorImage = childData.profilePictureURL == '' || childData.profilePictureURL == null ? '<img alt="" width="100%" style="width:70px;height:70px;" src="' + placeholderImage + '" alt="image">' : '<img onerror="this.onerror=null;this.src=\'' + placeholderImage + '\'" alt="" width="100%" style="width:70px;height:70px;" src="' + childData.profilePictureURL + '" alt="image">'
-                                var zoneName = zoneIdToName[childData.zoneId] || ' ';
+
+                                // Display zone name based on zoneId
+                                var zoneName = '';
+                                if (childData.zoneId && childData.zoneId !== '' && childData.zoneId !== null) {
+                                    // Check if zone exists in mapping
+                                    if (zoneIdToName[childData.zoneId]) {
+                                        zoneName = '<span class="badge badge-info py-2 px-3">' + zoneIdToName[childData.zoneId] + '</span>';
+                                        console.log('✅ Zone found for user ' + id + ':', zoneIdToName[childData.zoneId]);
+                                    } else {
+                                        // Zone ID exists but not found in zones table
+                                        zoneName = '<span class="badge badge-warning py-2 px-3" style="color: #666;">Zone Not Found (ID: ' + childData.zoneId + ')</span>';
+                                        console.warn('⚠️ Zone ID "' + childData.zoneId + '" not found in zones table for user ' + id);
+                                    }
+                                } else {
+                                    // No zone ID assigned
+                                    zoneName = '<span style="color: #999; font-style: italic;">null</span>';
+                                    console.log('ℹ️ No zone assigned for user ' + id);
+                                }
                                 // Format date with the new format: Oct 06, 2025 07:24 AM
                                 var createdAt = formatDateTime(childData.createdAt) || '-';
                                 records.push([
